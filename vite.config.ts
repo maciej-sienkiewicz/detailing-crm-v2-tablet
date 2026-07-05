@@ -11,6 +11,20 @@ export default defineConfig({
   optimizeDeps: {
     include: ['sockjs-client'],
   },
+  server: {
+    port: 5175,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/ws-registry': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        ws: true,
+      },
+    },
+  },
   build: {
     target: 'es2022',
     sourcemap: false,
