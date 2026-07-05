@@ -1,0 +1,19 @@
+node_modules
+dist
+*.local
+.env
+.env.*
+!.env.example
+
+# testy
+coverage
+test-results
+playwright-report
+blob-report
+
+# edytory / OS
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+*.log
