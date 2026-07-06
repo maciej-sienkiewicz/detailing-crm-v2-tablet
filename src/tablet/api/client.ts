@@ -73,16 +73,31 @@ async function apiFetch(path: string, options: RequestOptions = {}): Promise<Res
   }
 }
 
-/**
- * Wymuszamy dekodowanie UTF-8 niezależnie od charset w Content-Type.
- * Niektóre WebView na tabletach błędnie respektują charset=ISO-8859-1
- * z nagłówka odpowiedzi zamiast zawsze używać UTF-8 (wymaganego przez
- * specyfikację Fetch dla response.json()), co powoduje mojibake w polskich
- * znakach.
- */
 async function parseJsonUtf8<T>(response: Response): Promise<T> {
   const buffer = await response.arrayBuffer();
   return JSON.parse(new TextDecoder('utf-8').decode(buffer)) as T;
+}
+
+/**
+ * Naprawia mojibake powstały gdy bajty UTF-8 polskich znaków zostały zapisane
+ * jako osobne znaki Latin-1 (np. 'ś' [U+015B] → 'Å' [U+00C5] + U+009B).
+ *
+ * Algorytm: jeśli string zawiera znaki w zakresie U+0080–U+00FF (Latin-1
+ * extended), traktuje każdy znak jako jeden bajt i próbuje zdekodować
+ * sekwencję jako UTF-8. Przy `fatal: true` błąd oznacza, że string był
+ * poprawny (np. 'ó' U+00F3 generuje sekwencję 4-bajtową niemożliwą do
+ * ukończenia w obrębie tekstu ASCII) — zwracamy wtedy oryginał bez zmian.
+ */
+function repairMojibake(str: string): string {
+  if (!Array.from(str).some(c => c.charCodeAt(0) > 0x7f && c.charCodeAt(0) <= 0xff)) {
+    return str;
+  }
+  try {
+    const bytes = Uint8Array.from(str, c => c.charCodeAt(0) & 0xff);
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return str;
+  }
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
@@ -114,39 +129,37 @@ export async function getPendingRequest(token: string): Promise<PendingSignature
   const response = await apiFetch('/api/tablet/signature-requests/pending', { token });
   if (response.status === 204) return null;
 
-  // Klon zanim ciało zostanie skonsumowane — pozwala odczytać je dwukrotnie.
-  const diagClone = response.clone();
   const result = await parseJsonUtf8<PendingSignatureRequest>(response);
+  const repairedDeclarationText = repairMojibake(result.declarationText);
 
-  // ── Diagnostyka kodowania ──────────────────────────────────────────────────
-  // response.text() respektuje charset z Content-Type (może dać mojibake).
-  // parseJsonUtf8 powyżej wymusiło UTF-8 przez arrayBuffer()+TextDecoder.
-  // Porównanie obu wartości ujawnia czy przeglądarka błędnie interpretuje charset.
-  const browserRawText = await diagClone.text();
+  // ── Diagnostyka kodowania ─────────────────────────────────────────────────
   console.group('[tablet-api] /pending — diagnostyka kodowania');
-  console.info('Content-Type:', diagClone.headers.get('content-type') ?? '(brak)');
-  console.info('Ciało (response.text — charset z nagłówka):', browserRawText.slice(0, 400));
+  console.info('Content-Type:', response.headers.get('content-type') ?? '(brak)');
 
-  const dt = result.declarationText;
-  const latin1Chars = Array.from(dt).filter(c => c.charCodeAt(0) > 0x7f && c.charCodeAt(0) <= 0x00ff);
-  const unicodeChars = Array.from(dt).filter(c => c.charCodeAt(0) > 0x00ff);
-  const diagnosis =
+  const rawDt = result.declarationText;
+  const wasRepaired = rawDt !== repairedDeclarationText;
+  const latin1Chars = Array.from(rawDt).filter(c => c.charCodeAt(0) > 0x7f && c.charCodeAt(0) <= 0xff);
+  const unicodeChars = Array.from(rawDt).filter(c => c.charCodeAt(0) > 0xff);
+  const rawDiagnosis =
     unicodeChars.length > 0
-      ? '✓ poprawne Unicode (znaki polskie > U+00FF)'
+      ? '✓ poprawne Unicode'
       : latin1Chars.length > 0
-        ? '⚠ MOJIBAKE — znaki polskie w zakresie Latin-1 (≤ U+00FF)'
-        : '— tylko ASCII, nie można określić';
-  console.info(`declarationText [${diagnosis}]:`, dt);
+        ? '⚠ MOJIBAKE w bazie danych'
+        : '— tylko ASCII';
+  console.info(`declarationText z bazy [${rawDiagnosis}]:`, rawDt);
+  if (wasRepaired) {
+    console.info('declarationText po naprawie [✓ repairMojibake]:', repairedDeclarationText);
+  }
   console.info(
-    'Kody znaków (pierwsze 30):',
-    Array.from(dt.slice(0, 30))
+    'Kody znaków z bazy (pierwsze 30):',
+    Array.from(rawDt.slice(0, 30))
       .map(c => `'${c}'=U+${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}`)
       .join('  '),
   );
   console.groupEnd();
   // ─────────────────────────────────────────────────────────────────────────
 
-  return result;
+  return { ...result, declarationText: repairedDeclarationText };
 }
 
 export interface DocumentPayload {
