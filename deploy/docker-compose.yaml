@@ -1,0 +1,14 @@
+services:
+  detailing-crm-tablet:
+    image: ${ENV_DETAILING_CRM_TABLET_IMAGE}
+    container_name: ${DETAILING_CRM_TABLET_CONTAINER_NAME}
+    ports:
+      - '${ENV_DETAILING_CRM_TABLET_EXTERNAL_PORT}:80'
+    restart: always
+    networks:
+      - network
+
+networks:
+  network:
+    name: ${ENV_NETWORK}
+    external: true
