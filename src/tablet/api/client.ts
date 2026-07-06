@@ -60,6 +60,10 @@ async function apiFetch(path: string, options: RequestOptions = {}): Promise<Res
       throw new NetworkError();
     }
 
+    console.debug(
+      `[tablet-api] ${method} ${path} → ${response.status} | Content-Type: ${response.headers.get('content-type') ?? '(brak)'}`,
+    );
+
     if (!response.ok) {
       throw new ApiError(response.status, await readErrorMessage(response));
     }
@@ -109,7 +113,40 @@ export async function getContext(token: string): Promise<TabletContext> {
 export async function getPendingRequest(token: string): Promise<PendingSignatureRequest | null> {
   const response = await apiFetch('/api/tablet/signature-requests/pending', { token });
   if (response.status === 204) return null;
-  return parseJsonUtf8<PendingSignatureRequest>(response);
+
+  // Klon zanim ciało zostanie skonsumowane — pozwala odczytać je dwukrotnie.
+  const diagClone = response.clone();
+  const result = await parseJsonUtf8<PendingSignatureRequest>(response);
+
+  // ── Diagnostyka kodowania ──────────────────────────────────────────────────
+  // response.text() respektuje charset z Content-Type (może dać mojibake).
+  // parseJsonUtf8 powyżej wymusiło UTF-8 przez arrayBuffer()+TextDecoder.
+  // Porównanie obu wartości ujawnia czy przeglądarka błędnie interpretuje charset.
+  const browserRawText = await diagClone.text();
+  console.group('[tablet-api] /pending — diagnostyka kodowania');
+  console.info('Content-Type:', diagClone.headers.get('content-type') ?? '(brak)');
+  console.info('Ciało (response.text — charset z nagłówka):', browserRawText.slice(0, 400));
+
+  const dt = result.declarationText;
+  const latin1Chars = Array.from(dt).filter(c => c.charCodeAt(0) > 0x7f && c.charCodeAt(0) <= 0x00ff);
+  const unicodeChars = Array.from(dt).filter(c => c.charCodeAt(0) > 0x00ff);
+  const diagnosis =
+    unicodeChars.length > 0
+      ? '✓ poprawne Unicode (znaki polskie > U+00FF)'
+      : latin1Chars.length > 0
+        ? '⚠ MOJIBAKE — znaki polskie w zakresie Latin-1 (≤ U+00FF)'
+        : '— tylko ASCII, nie można określić';
+  console.info(`declarationText [${diagnosis}]:`, dt);
+  console.info(
+    'Kody znaków (pierwsze 30):',
+    Array.from(dt.slice(0, 30))
+      .map(c => `'${c}'=U+${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}`)
+      .join('  '),
+  );
+  console.groupEnd();
+  // ─────────────────────────────────────────────────────────────────────────
+
+  return result;
 }
 
 export interface DocumentPayload {
