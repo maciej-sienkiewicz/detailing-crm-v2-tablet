@@ -21,7 +21,7 @@ pipeline {
                     } else if (branch == 'origin/develop') {
                         tag = 'develop'
                     } else {
-                        error("Build przerwany: branch '${branch}' nie jest obsługiwany (tylko 'main' lub 'develop').")
+                        error("Build przerwany: branch '${branch}' nie jest obslugiwany (tylko 'main' lub 'develop').")
                     }
 
                     def buildDate = sh(
