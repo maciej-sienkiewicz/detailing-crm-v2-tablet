@@ -69,9 +69,21 @@ async function apiFetch(path: string, options: RequestOptions = {}): Promise<Res
   }
 }
 
+/**
+ * Wymuszamy dekodowanie UTF-8 niezależnie od charset w Content-Type.
+ * Niektóre WebView na tabletach błędnie respektują charset=ISO-8859-1
+ * z nagłówka odpowiedzi zamiast zawsze używać UTF-8 (wymaganego przez
+ * specyfikację Fetch dla response.json()), co powoduje mojibake w polskich
+ * znakach.
+ */
+async function parseJsonUtf8<T>(response: Response): Promise<T> {
+  const buffer = await response.arrayBuffer();
+  return JSON.parse(new TextDecoder('utf-8').decode(buffer)) as T;
+}
+
 async function readErrorMessage(response: Response): Promise<string> {
   try {
-    const body = (await response.json()) as { message?: string };
+    const body = await parseJsonUtf8<{ message?: string }>(response);
     if (body && typeof body.message === 'string' && body.message.length > 0) {
       return body.message;
     }
@@ -84,20 +96,20 @@ async function readErrorMessage(response: Response): Promise<string> {
 /** POST /api/tablet/pair — parowanie kodem 6-cyfrowym. */
 export async function pairTablet(request: PairRequest): Promise<PairResponse> {
   const response = await apiFetch('/api/tablet/pair', { method: 'POST', body: request });
-  return (await response.json()) as PairResponse;
+  return parseJsonUtf8<PairResponse>(response);
 }
 
 /** GET /api/tablet/context — walidacja tokenu przy starcie (przedłuża TTL). */
 export async function getContext(token: string): Promise<TabletContext> {
   const response = await apiFetch('/api/tablet/context', { token });
-  return (await response.json()) as TabletContext;
+  return parseJsonUtf8<TabletContext>(response);
 }
 
 /** GET /api/tablet/signature-requests/pending — 204 → null. */
 export async function getPendingRequest(token: string): Promise<PendingSignatureRequest | null> {
   const response = await apiFetch('/api/tablet/signature-requests/pending', { token });
   if (response.status === 204) return null;
-  return (await response.json()) as PendingSignatureRequest;
+  return parseJsonUtf8<PendingSignatureRequest>(response);
 }
 
 export interface DocumentPayload {
@@ -132,7 +144,7 @@ export async function submitSignature(
     `/api/tablet/signature-requests/${encodeURIComponent(requestId)}/submit`,
     { method: 'POST', token, body: payload, timeoutMs: SUBMIT_TIMEOUT_MS },
   );
-  return (await response.json()) as SignatureResultResponse;
+  return parseJsonUtf8<SignatureResultResponse>(response);
 }
 
 /** POST /api/tablet/signature-requests/{id}/decline — odmowa podpisu. */
@@ -145,5 +157,5 @@ export async function declineSignature(
     `/api/tablet/signature-requests/${encodeURIComponent(requestId)}/decline`,
     { method: 'POST', token, body: reason ? { reason } : {} },
   );
-  return (await response.json()) as SignatureResultResponse;
+  return parseJsonUtf8<SignatureResultResponse>(response);
 }
