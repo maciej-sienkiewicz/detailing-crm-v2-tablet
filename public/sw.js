@@ -58,7 +58,10 @@ self.addEventListener('fetch', (event) => {
       const network = fetch(request)
         .then((response) => {
           if (response.ok) {
-            caches.open(SHELL_CACHE).then((cache) => cache.put(request, response.clone()));
+            // Clone must happen synchronously before any async operations —
+            // once respondWith consumes the body, clone() throws "body is already used".
+            const cloneForCache = response.clone();
+            caches.open(SHELL_CACHE).then((cache) => cache.put(request, cloneForCache));
           }
           return response;
         })

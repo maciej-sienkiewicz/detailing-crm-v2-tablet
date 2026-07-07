@@ -28,5 +28,17 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        // Rename .mjs assets to .js so servers without explicit MIME config
+        // for .mjs still serve them as application/javascript.
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name?.endsWith('.mjs')) {
+            return 'assets/[name]-[hash].js';
+          }
+          return 'assets/[name]-[hash][extname]';
+        },
+      },
+    },
   },
 });
