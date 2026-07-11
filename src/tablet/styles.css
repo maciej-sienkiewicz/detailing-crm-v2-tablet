@@ -535,6 +535,9 @@ body {
   background: var(--pad-surface);
   border: 2px dashed #b9bfcc;
   overflow: hidden;
+  /* Blokada gestów scroll/zoom także na ramce — dotyk tuż przy krawędzi
+     canvasa nie może „złapać" strony. */
+  touch-action: none;
 }
 
 .signature-canvas {

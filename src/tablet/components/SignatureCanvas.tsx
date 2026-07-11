@@ -156,16 +156,27 @@ export const SignatureCanvas = forwardRef<SignatureCanvasHandle, SignatureCanvas
         onInkChangeRef.current(inkRef.current);
       };
 
+      // Zapasowa blokada przewijania: starsze silniki WebKit/WebView (m.in.
+      // iOS < 13) ignorują CSS `touch-action: none`, przez co ruch palcem po
+      // canvasie przesuwa całą stronę zamiast rysować. preventDefault na
+      // zdarzeniach touch tłumi natywny scroll/zoom, a pointer events, na
+      // których rysujemy, działają dalej. Listenery muszą być non-passive.
+      const blockTouchGestures = (event: TouchEvent) => event.preventDefault();
+
       canvas.addEventListener('pointerdown', onPointerDown);
       canvas.addEventListener('pointermove', onPointerMove);
       canvas.addEventListener('pointerup', endStroke);
       canvas.addEventListener('pointercancel', endStroke);
+      canvas.addEventListener('touchstart', blockTouchGestures, { passive: false });
+      canvas.addEventListener('touchmove', blockTouchGestures, { passive: false });
 
       return () => {
         canvas.removeEventListener('pointerdown', onPointerDown);
         canvas.removeEventListener('pointermove', onPointerMove);
         canvas.removeEventListener('pointerup', endStroke);
         canvas.removeEventListener('pointercancel', endStroke);
+        canvas.removeEventListener('touchstart', blockTouchGestures);
+        canvas.removeEventListener('touchmove', blockTouchGestures);
         // Zniszcz bitmapę podpisu przy odmontowaniu (wymóg: natychmiastowe
         // usunięcie danych po wysłaniu/błędzie).
         ctx.clearRect(0, 0, canvas.width, canvas.height);

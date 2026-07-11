@@ -3,7 +3,9 @@ import { useEffect } from 'react';
 /**
  * Zachowania kioskowe:
  *  - Fullscreen API po pierwszym tapnięciu (i ponownie, gdyby ktoś wyszedł),
- *  - blokada menu kontekstowego.
+ *  - blokada menu kontekstowego,
+ *  - blokada pinch-zoom strony na iOS (Safari ignoruje user-scalable=no;
+ *    przybliżona strona „pływa" pod palcem i uniemożliwia podpis).
  * Selekcja tekstu i overscroll są wyłączone w CSS.
  */
 export function useKioskMode(): void {
@@ -16,12 +18,20 @@ export function useKioskMode(): void {
       }
     };
     const onContextMenu = (event: Event) => event.preventDefault();
+    // Zdarzenia gesture* są specyficzne dla WebKit — jedyny skuteczny sposób
+    // na wyłączenie natywnego pinch-zoomu strony na iPadzie. Pinch w PDF
+    // obsługujemy sami w PdfViewer (touchmove), więc nic nie tracimy.
+    const onGesture = (event: Event) => event.preventDefault();
 
     window.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('contextmenu', onContextMenu);
+    window.addEventListener('gesturestart', onGesture);
+    window.addEventListener('gesturechange', onGesture);
     return () => {
       window.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('contextmenu', onContextMenu);
+      window.removeEventListener('gesturestart', onGesture);
+      window.removeEventListener('gesturechange', onGesture);
     };
   }, []);
 }
