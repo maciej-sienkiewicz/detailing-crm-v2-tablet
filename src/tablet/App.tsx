@@ -15,6 +15,7 @@ import type { PairingInfo, SignatureEvent } from './api/types';
 import { PENDING_POLL_MS, THANK_YOU_MS } from './config';
 import { sha256Hex } from './crypto/hash';
 import { useKioskMode } from './hooks/useKioskMode';
+import { useShellUpdate } from './hooks/useShellUpdate';
 import { useWakeLock } from './hooks/useWakeLock';
 import { DocumentStore } from './pdf/documentStore';
 import { loadPdf } from './pdf/pdf';
@@ -65,6 +66,9 @@ export default function App() {
 
   useKioskMode();
   useWakeLock(pairing !== null);
+  // Samo-aktualizacja powłoki po deployu — reload wyłącznie w trybie czuwania,
+  // nigdy w trakcie sesji podpisu (patrz useShellUpdate).
+  useShellUpdate(wsConnected, state.name === 'STANDBY');
 
   const forgetPairing = useCallback(() => {
     clearPairing();

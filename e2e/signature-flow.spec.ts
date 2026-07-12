@@ -270,6 +270,121 @@ test('zapętlony błąd: reset pracownika czyści dane i wraca do parowania', as
   expect(stored).toBeNull();
 });
 
+/** Parowanie zapisywane przy każdej nawigacji — pomocnicze dla testów samo-aktualizacji. */
+async function presetPairing(page: Page) {
+  await page.addInitScript(
+    ([key, value]) => localStorage.setItem(key, value),
+    [
+      'detailboost.tablet.pairing',
+      JSON.stringify({
+        token: PAIRING.token,
+        tabletId: PAIRING.tabletId,
+        studioId: PAIRING.studioId,
+        deviceName: 'Recepcja 1',
+      }),
+    ] as const,
+  );
+}
+
+test('samo-aktualizacja: nieaktualna powłoka przeładowuje się w STANDBY, dokładnie raz', async ({
+  page,
+}) => {
+  const mock: MockState = { pendingAvailable: false, submitBody: null, documentFetches: 0 };
+  await installApiMocks(page, mock);
+
+  // Serwer ogłasza inną wersję powłoki niż załadowana (symulacja świeżego deployu).
+  await page.route('**/version.json', (route) =>
+    route.fulfill({
+      status: 200,
+      json: { buildId: 'nowa-wersja-e2e' },
+      headers: { 'Cache-Control': 'no-store' },
+    }),
+  );
+
+  await presetPairing(page);
+  await page.goto('/');
+  await expect(page.locator('.standby-clock')).toBeVisible();
+
+  // Marker w window ginie wyłącznie przy pełnym przeładowaniu strony.
+  await page.evaluate(() => {
+    (window as { __e2eShellMarker?: boolean }).__e2eShellMarker = true;
+  });
+
+  // W STANDBY, po okresie karencji, tablet przeładowuje się sam.
+  await page.waitForFunction(
+    () => (window as { __e2eShellMarker?: boolean }).__e2eShellMarker === undefined,
+    undefined,
+    { timeout: 20_000 },
+  );
+  await expect(page.locator('.standby-clock')).toBeVisible();
+
+  // Guard przed pętlą: wersja docelowa się nie zmieniła, więc drugiej próby nie ma.
+  await page.evaluate(() => {
+    (window as { __e2eShellMarker?: boolean }).__e2eShellMarker = true;
+  });
+  await page.waitForTimeout(8_000);
+  const markerStillThere = await page.evaluate(
+    () => (window as { __e2eShellMarker?: boolean }).__e2eShellMarker === true,
+  );
+  expect(markerStillThere).toBe(true);
+  await expect(page.locator('.standby-clock')).toBeVisible();
+});
+
+test('samo-aktualizacja nie przerywa sesji podpisu — reload dopiero po powrocie do STANDBY', async ({
+  page,
+}) => {
+  const mock: MockState = { pendingAvailable: true, submitBody: null, documentFetches: 0 };
+  const pending = await installApiMocks(page, mock);
+
+  await page.route(`**/api/tablet/signature-requests/${pending.requestId}/decline`, (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        requestId: pending.requestId,
+        status: 'DECLINED',
+        sealApplied: false,
+        timestampApplied: false,
+      },
+    }),
+  );
+
+  await page.route('**/version.json', (route) =>
+    route.fulfill({
+      status: 200,
+      json: { buildId: 'nowa-wersja-e2e' },
+      headers: { 'Cache-Control': 'no-store' },
+    }),
+  );
+
+  await presetPairing(page);
+  await page.goto('/');
+
+  // Klient przegląda dokument — aktualizacja jest już wykryta, ale czeka.
+  await expect(page.getByText(pending.documentName)).toBeVisible({ timeout: 20_000 });
+  await page.evaluate(() => {
+    (window as { __e2eShellMarker?: boolean }).__e2eShellMarker = true;
+  });
+
+  // Dłużej niż karencja przeładowania — w trakcie sesji podpisu nic się nie dzieje.
+  await page.waitForTimeout(8_000);
+  const markerDuringFlow = await page.evaluate(
+    () => (window as { __e2eShellMarker?: boolean }).__e2eShellMarker === true,
+  );
+  expect(markerDuringFlow).toBe(true);
+  await expect(page.getByText(pending.documentName)).toBeVisible();
+
+  // Klient odmawia → ekran odmowy → auto-powrót do STANDBY → dopiero teraz reload.
+  mock.pendingAvailable = false;
+  await page.getByRole('button', { name: 'Odmawiam podpisu' }).click();
+
+  await page.waitForFunction(
+    () => (window as { __e2eShellMarker?: boolean }).__e2eShellMarker === undefined,
+    undefined,
+    { timeout: 30_000 },
+  );
+  await expect(page.locator('.standby-clock')).toBeVisible();
+});
+
 test('odwołany token czyści parowanie i wraca do ekranu parowania', async ({ page }) => {
   await page.route('**/ws-registry**', (route) => route.abort());
   await page.route('**/api/tablet/context', (route) =>

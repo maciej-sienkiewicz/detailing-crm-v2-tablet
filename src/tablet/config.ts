@@ -23,3 +23,13 @@ export const WS_RECONNECT_BACKOFF_MS = [1000, 2000, 5000, 10_000];
 
 /** Minimalna łączna długość kreski (px CSS), by uznać podpis za niepusty. */
 export const MIN_INK_LENGTH_PX = 60;
+
+/** Jak często tablet sprawdza, czy na serwerze jest nowsza powłoka aplikacji. */
+export const SHELL_VERSION_CHECK_MS = 15 * 60_000;
+
+/**
+ * Ile ms tablet musi nieprzerwanie stać w STANDBY, zanim wykona przeładowanie
+ * do nowej wersji. Bufor na sytuację, gdy pracownik właśnie wysyła dokument —
+ * przyjście żądania podpisu wychodzi ze STANDBY i anuluje przeładowanie.
+ */
+export const SHELL_RELOAD_GRACE_MS = 5_000;
