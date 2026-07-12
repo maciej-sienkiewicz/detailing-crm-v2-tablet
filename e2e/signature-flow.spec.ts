@@ -216,6 +216,60 @@ test('auto-reconnect: zapisany token łączy bez interakcji (dzień 2)', async (
   await expect(page.getByText('Recepcja 1')).toBeVisible();
 });
 
+test('zapętlony błąd: reset pracownika czyści dane i wraca do parowania', async ({ page }) => {
+  const mock: MockState = { pendingAvailable: true, submitBody: null, documentFetches: 0 };
+  const pending = await installApiMocks(page, mock);
+
+  // Serwer zwraca inne bajty niż zapowiedziany hash → twardy błąd integralności.
+  // Żądanie na serwerze pozostaje aktywne, więc tablet zapętla się na błędzie.
+  await page.route(`**/api/tablet/signature-requests/${pending.requestId}/document`, (route) =>
+    route.fulfill({
+      status: 200,
+      body: Buffer.from('to-nie-jest-oczekiwany-pdf'),
+      headers: { 'Content-Type': 'application/pdf', 'Cache-Control': 'no-store' },
+    }),
+  );
+
+  // Parowanie ustawiamy jednorazowo (nie przez addInitScript, który wstrzykiwałby
+  // token ponownie po przeładowaniu wykonywanym przez reset).
+  await page.goto('/');
+  await page.evaluate(
+    ([key, value]) => localStorage.setItem(key, value),
+    [
+      'detailboost.tablet.pairing',
+      JSON.stringify({
+        token: PAIRING.token,
+        tabletId: PAIRING.tabletId,
+        studioId: PAIRING.studioId,
+        deviceName: 'Recepcja 1',
+      }),
+    ] as const,
+  );
+  await page.reload();
+
+  // ── Ekran błędu ──
+  await expect(page.getByRole('heading', { name: 'Wystąpił problem' })).toBeVisible({
+    timeout: 20_000,
+  });
+
+  // ── OK nie uwalnia z pętli: pending wciąż aktywny → błąd wraca ──
+  await page.getByRole('button', { name: 'OK' }).click();
+  await expect(page.getByRole('heading', { name: 'Wystąpił problem' })).toBeVisible({
+    timeout: 20_000,
+  });
+
+  // ── Reset pracownika: potwierdzenie → czyszczenie → ekran parowania ──
+  await page.getByRole('button', { name: 'Dla pracownika: wyczyść dane tabletu' }).click();
+  await expect(page.getByRole('heading', { name: 'Wyczyścić dane tabletu?' })).toBeVisible();
+  await page.getByRole('button', { name: 'Tak, wyczyść i rozłącz' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Sparuj tablet' })).toBeVisible({
+    timeout: 20_000,
+  });
+  const stored = await page.evaluate(() => localStorage.getItem('detailboost.tablet.pairing'));
+  expect(stored).toBeNull();
+});
+
 test('odwołany token czyści parowanie i wraca do ekranu parowania', async ({ page }) => {
   await page.route('**/ws-registry**', (route) => route.abort());
   await page.route('**/api/tablet/context', (route) =>

@@ -82,6 +82,21 @@ body {
   border-color: var(--border);
 }
 
+.btn--danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn--danger:not(:disabled):active {
+  opacity: 0.85;
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
 /* ── Spinner ── */
 
 .spinner {
@@ -641,5 +656,23 @@ body {
 
 .error-ok {
   margin-top: 20px;
+  min-width: 200px;
+}
+
+/* Wyjście awaryjne dla pracownika — celowo stonowane, by nie kusić klienta. */
+.error-reset {
+  margin-top: 28px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  min-height: 48px;
+}
+
+.error-actions {
+  display: flex;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.error-actions .btn {
   min-width: 200px;
 }

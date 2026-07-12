@@ -9,6 +9,7 @@ import {
   pairTablet,
   submitSignature,
 } from './api/client';
+import { factoryResetTablet } from './api/reset';
 import { clearPairing, loadPairing, savePairing } from './api/storage';
 import type { PairingInfo, SignatureEvent } from './api/types';
 import { PENDING_POLL_MS, THANK_YOU_MS } from './config';
@@ -289,6 +290,13 @@ export default function App() {
     }
   }, []);
 
+  const handleFactoryReset = useCallback(() => {
+    // Zapętlony błąd = lokalny stan nie do odratowania. Czyścimy wszystko
+    // (parowanie, Cache Storage, service worker) i przeładowujemy — aplikacja
+    // wstanie na ekranie parowania ze świeżą powłoką z sieci.
+    void factoryResetTablet();
+  }, []);
+
   const handleDeclarationChange = useCallback((accepted: boolean) => {
     // Moment zaznaczenia oświadczenia — ISO timestamp trafia do submitu.
     dispatch({
@@ -339,6 +347,12 @@ export default function App() {
     case 'DECLINED_INFO':
       return <DeclinedInfo />;
     case 'ERROR_SCREEN':
-      return <ErrorScreen message={state.message} onAcknowledge={() => dispatch({ type: 'DISMISS' })} />;
+      return (
+        <ErrorScreen
+          message={state.message}
+          onAcknowledge={() => dispatch({ type: 'DISMISS' })}
+          onFactoryReset={handleFactoryReset}
+        />
+      );
   }
 }
