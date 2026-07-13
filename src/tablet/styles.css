@@ -301,6 +301,48 @@ body {
   letter-spacing: 0.06em;
 }
 
+/* Potwierdzenie rozparowania (wejście serwisowe: 5 tapnięć w logo). */
+
+.reset-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 10;
+}
+
+.reset-dialog {
+  width: min(560px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.reset-title {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.reset-text {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.reset-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+  margin-top: 8px;
+}
+
 /* Wersja powłoki — dyskretna, ale czytelna z bliska po deployu. */
 .standby-version {
   margin-left: 10px;

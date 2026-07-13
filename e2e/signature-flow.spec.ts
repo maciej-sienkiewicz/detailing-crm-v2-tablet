@@ -413,3 +413,49 @@ test('odwołany token czyści parowanie i wraca do ekranu parowania', async ({ p
   const stored = await page.evaluate(() => localStorage.getItem('detailboost.tablet.pairing'));
   expect(stored).toBeNull();
 });
+
+test('5 tapnięć w logo na ekranie czuwania rozparowuje tablet po potwierdzeniu', async ({
+  page,
+}) => {
+  const mock: MockState = { pendingAvailable: false, submitBody: null, documentFetches: 0 };
+  await installApiMocks(page, mock);
+
+  // Parowanie zasiane JEDNORAZOWO (nie przez addInitScript — ten wykonuje
+  // się po każdej nawigacji i cofnąłby czyszczenie zrobione przez reset).
+  await page.goto('/');
+  await page.evaluate(
+    ([key, value]) => localStorage.setItem(key, value),
+    [
+      'detailboost.tablet.pairing',
+      JSON.stringify({
+        token: PAIRING.token,
+        tabletId: PAIRING.tabletId,
+        studioId: PAIRING.studioId,
+        deviceName: 'Recepcja 1',
+      }),
+    ] as const,
+  );
+  await page.reload();
+  await expect(page.locator('.standby-clock')).toBeVisible();
+
+  const logo = page.locator('.standby-logo');
+
+  // Za mało tapnięć — dialog się nie pojawia.
+  for (let i = 0; i < 4; i++) await logo.click();
+  await expect(page.locator('.reset-dialog')).toHaveCount(0);
+  // Odczekaj wygaśnięcie okna zliczania, żeby licznik ruszał od zera.
+  await page.waitForTimeout(3_200);
+
+  // Komplet tapnięć → dialog; „Anuluj" zamyka bez czyszczenia.
+  for (let i = 0; i < 5; i++) await logo.click();
+  await expect(page.getByRole('heading', { name: 'Rozparować tablet?' })).toBeVisible();
+  await page.getByRole('button', { name: 'Anuluj' }).click();
+  await expect(page.locator('.reset-dialog')).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem('detailboost.tablet.pairing'))).not.toBeNull();
+
+  // Potwierdzenie czyści parowanie i wraca do ekranu parowania.
+  for (let i = 0; i < 5; i++) await logo.click();
+  await page.getByRole('button', { name: 'Wyczyść i rozparuj' }).click();
+  await expect(page.getByRole('heading', { name: 'Sparuj tablet' })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('detailboost.tablet.pairing'))).toBeNull();
+});

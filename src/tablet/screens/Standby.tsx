@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { factoryResetTablet } from '../api/reset';
 import { useMinuteClock } from '../hooks/useMinuteClock';
 import { useOnline } from '../hooks/useOnline';
 import { LOCAL_BUILD_ID } from '../shell/update';
@@ -22,6 +23,15 @@ interface StandbyProps {
 const NOTICE_VISIBLE_MS = 10_000;
 
 /**
+ * Wejście serwisowe dla pracownika: RESET_TAP_COUNT szybkich tapnięć w logo
+ * (okno RESET_TAP_WINDOW_MS) otwiera potwierdzenie rozparowania. Celowo bez
+ * widocznego przycisku — klient zostający sam z tabletem nie może przypadkiem
+ * (ani z ciekawości) wyczyścić urządzenia.
+ */
+const RESET_TAP_COUNT = 5;
+const RESET_TAP_WINDOW_MS = 3_000;
+
+/**
  * Tryb czuwania: czarny ekran (#000, OLED-friendly), duży zegar HH:MM
  * odświeżany raz na minutę, dyskretne logo i kropka statusu połączenia.
  */
@@ -29,6 +39,25 @@ export function Standby({ deviceName, wsConnected, notice }: StandbyProps) {
   const now = useMinuteClock();
   const online = useOnline();
   const [noticeVisible, setNoticeVisible] = useState(false);
+  const [resetConfirmVisible, setResetConfirmVisible] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const tapsRef = useRef<number[]>([]);
+
+  const handleLogoTap = () => {
+    const cutoff = Date.now() - RESET_TAP_WINDOW_MS;
+    tapsRef.current = [...tapsRef.current.filter((t) => t > cutoff), Date.now()];
+    if (tapsRef.current.length >= RESET_TAP_COUNT) {
+      tapsRef.current = [];
+      setResetConfirmVisible(true);
+    }
+  };
+
+  const handleReset = () => {
+    setResetting(true);
+    // factoryResetTablet czyści storage/cache/SW i przeładowuje na ekran
+    // parowania; stan lokalny nie ma już znaczenia.
+    void factoryResetTablet();
+  };
 
   useEffect(() => {
     if (!notice) {
@@ -58,7 +87,7 @@ export function Standby({ deviceName, wsConnected, notice }: StandbyProps) {
       </div>
 
       <div className="standby-footer">
-        <span className="standby-logo">
+        <span className="standby-logo" onClick={handleLogoTap}>
           DetailBoost
           <span className="standby-version" title="Wersja powłoki aplikacji">
             {SHELL_VERSION}
@@ -75,6 +104,37 @@ export function Standby({ deviceName, wsConnected, notice }: StandbyProps) {
 
       {!online && (
         <div className="offline-banner">Brak połączenia — próbuję ponownie…</div>
+      )}
+
+      {resetConfirmVisible && (
+        <div className="reset-overlay" role="alertdialog" aria-label="Rozparowanie tabletu">
+          <div className="reset-dialog">
+            <h2 className="reset-title">Rozparować tablet?</h2>
+            <p className="reset-text">
+              Urządzenie <strong>{deviceName}</strong> zostanie wyczyszczone
+              (parowanie, pamięć podręczna) i wróci do ekranu parowania.
+              Do ponownego połączenia potrzebny będzie nowy kod z CRM.
+            </p>
+            <div className="reset-actions">
+              <button
+                type="button"
+                className="btn btn--secondary"
+                onClick={() => setResetConfirmVisible(false)}
+                disabled={resetting}
+              >
+                Anuluj
+              </button>
+              <button
+                type="button"
+                className="btn btn--danger"
+                onClick={handleReset}
+                disabled={resetting}
+              >
+                {resetting ? 'Czyszczenie…' : 'Wyczyść i rozparuj'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
