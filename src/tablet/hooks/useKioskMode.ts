@@ -10,10 +10,20 @@ import { useEffect } from 'react';
  */
 export function useKioskMode(): void {
   useEffect(() => {
+    // Pole edycji (input/textarea/contenteditable) — samo lub jako aktualny
+    // właściciel focusa. Żądanie fullscreenu podczas wpisywania tekstu
+    // wywołuje na iPadOS walkę z klawiaturą ekranową: przejście w fullscreen
+    // chowa klawiaturę, otwarcie klawiatury wybija z fullscreenu i każde
+    // tapnięcie zaczyna cykl od nowa (ekran „skacze", nie da się pisać).
+    const isEditable = (node: unknown): boolean =>
+      node instanceof Element &&
+      node.closest('input, textarea, [contenteditable]') !== null;
+
     // Fullscreen dopiero na pointerup (to też ważny gest aktywacji):
     // wejście w fullscreen na pointerdown przerywało trwający ruch palca
     // (pointercancel) i zmieniało rozmiar layoutu W TRAKCIE kreski podpisu.
-    const onPointerUp = () => {
+    const onPointerUp = (event: PointerEvent) => {
+      if (isEditable(event.target) || isEditable(document.activeElement)) return;
       if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
         document.documentElement.requestFullscreen().catch(() => {
           // przeglądarka odmówiła (np. brak gestu) — spróbujemy przy kolejnym tapnięciu
