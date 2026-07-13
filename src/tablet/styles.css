@@ -301,6 +301,16 @@ body {
   letter-spacing: 0.06em;
 }
 
+/* Wersja powłoki — dyskretna, ale czytelna z bliska po deployu. */
+.standby-version {
+  margin-left: 10px;
+  font-weight: 400;
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
+  color: #333842;
+  font-variant-numeric: tabular-nums;
+}
+
 .standby-status {
   display: flex;
   align-items: center;
