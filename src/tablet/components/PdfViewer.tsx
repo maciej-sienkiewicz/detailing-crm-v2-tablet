@@ -9,10 +9,44 @@ const MIN_ZOOM = 1;
 const MAX_ZOOM = 3;
 
 /**
- * Renderuje wszystkie strony PDF (pdf.js) w scrollowalnym kontenerze.
- * Zoom: pinch dwoma palcami (touchmove z preventDefault — pojedynczy palec
- * scrolluje natywnie) + przyciski +/− . Po zmianie zoomu strony są
- * re-renderowane w docelowej skali, więc tekst pozostaje ostry.
+ * Limity canvasa na iOS/Safari. Przekroczenie któregokolwiek NIE zgłasza
+ * błędu — Safari po cichu maluje pusty (biały) canvas. Na iPadzie (duży
+ * ekran × dpr 2 × zoom 3) łatwo je przekroczyć, dlatego rozdzielczość
+ * renderowania jest twardo przycinana poniżej progów.
+ */
+const MAX_CANVAS_DIM = 4096;
+const MAX_CANVAS_AREA = 16 * 1024 * 1024;
+
+/** Skala piksele-bitmapy/piksele-CSS przycięta do bezpiecznych limitów. */
+function canvasScaleFor(cssWidth: number, cssHeight: number): number {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dimCap = MAX_CANVAS_DIM / Math.max(cssWidth, cssHeight);
+  const areaCap = Math.sqrt(MAX_CANVAS_AREA / (cssWidth * cssHeight));
+  return Math.max(0.25, Math.min(dpr, dimCap, areaCap));
+}
+
+interface PageSize {
+  width: number;
+  height: number;
+}
+
+function isRenderingCancelled(error: unknown): boolean {
+  return (error as { name?: string } | null)?.name === 'RenderingCancelledException';
+}
+
+/**
+ * Renderuje strony PDF (pdf.js) w scrollowalnym kontenerze.
+ *
+ * Strony renderowane są LENIWIE (IntersectionObserver): bitmapę dostają tylko
+ * strony w pobliżu widoku, a odległe są zwalniane. iOS ma globalny budżet
+ * pamięci na canvasy — wielostronicowy dokument wyrenderowany w całości
+ * przekracza go na iPadzie i wszystkie strony robią się białe. Leniwe
+ * renderowanie ogranicza liczbę żywych bitmap niezależnie od długości
+ * dokumentu i urządzenia.
+ *
+ * Zoom: pinch dwoma palcami (podgląd tanim transformem, ostry re-render po
+ * puszczeniu) + przyciski +/−. Zmiana rozmiaru kontenera (fullscreen, obrót
+ * ekranu) przelicza układ stron.
  */
 export function PdfViewer({ pdf }: PdfViewerProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -20,71 +54,134 @@ export function PdfViewer({ pdf }: PdfViewerProps) {
   const [zoom, setZoom] = useState(1);
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [pageSizes, setPageSizes] = useState<PageSize[] | null>(null);
 
-  // Render stron przy zmianie dokumentu lub zoomu.
+  // Bazowe wymiary stron (scale 1) — raz na dokument.
   useEffect(() => {
-    const scroller = scrollerRef.current;
-    const pagesEl = pagesRef.current;
-    if (!scroller || !pagesEl) return;
-
     let cancelled = false;
+    setPageSizes(null);
 
     (async () => {
-      const containerWidth = scroller.clientWidth - 24; // padding
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const fresh: HTMLCanvasElement[] = [];
-
+      const sizes: PageSize[] = [];
       for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-        if (cancelled) return;
         const page = await pdf.getPage(pageNumber);
         if (cancelled) return;
-
-        const baseViewport = page.getViewport({ scale: 1 });
-        const scale = (containerWidth / baseViewport.width) * zoom;
-        const viewport = page.getViewport({ scale });
-
-        const canvas = document.createElement('canvas');
-        canvas.className = 'pdf-page';
-        canvas.width = Math.floor(viewport.width * dpr);
-        canvas.height = Math.floor(viewport.height * dpr);
-        canvas.style.width = `${Math.floor(viewport.width)}px`;
-        canvas.style.height = `${Math.floor(viewport.height)}px`;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) continue;
-
-        pagesEl.appendChild(canvas);
-        fresh.push(canvas);
-        await page.render({
-          canvasContext: ctx,
-          canvas,
-          viewport,
-          transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined,
-        }).promise;
+        const viewport = page.getViewport({ scale: 1 });
+        sizes.push({ width: viewport.width, height: viewport.height });
       }
-
-      if (!cancelled) {
-        // Usuń poprzedni zestaw stron dopiero po wyrenderowaniu nowego
-        // (bez migotania przy zmianie zoomu).
-        for (const child of Array.from(pagesEl.children)) {
-          if (!fresh.includes(child as HTMLCanvasElement)) child.remove();
-        }
-      }
-    })().catch(() => {
-      // render przerwany (np. pdf.destroy() przy sprzątaniu) — ignorujemy
+      if (!cancelled) setPageSizes(sizes);
+    })().catch((error) => {
+      // dokument zniszczony przy sprzątaniu — ignorujemy
+      if (!cancelled) console.error('PDF: odczyt wymiarów stron nie powiódł się', error);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [pdf, zoom]);
+  }, [pdf]);
 
-  // Czyszczenie DOM przy odmontowaniu.
+  // Szerokość kontenera — reaguje na fullscreen/obrót ekranu.
   useEffect(() => {
-    const pagesEl = pagesRef.current;
-    return () => {
-      if (pagesEl) pagesEl.innerHTML = '';
-    };
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const measure = () => setContainerWidth(scroller.clientWidth - 24); // padding
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(scroller);
+    return () => observer.disconnect();
   }, []);
+
+  // Układ stron + leniwe renderowanie widocznych.
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    const pagesEl = pagesRef.current;
+    if (!scroller || !pagesEl || !pageSizes || containerWidth <= 0) return;
+
+    let disposed = false;
+    const renderTasks = new Map<HTMLElement, { cancel: () => void }>();
+
+    const renderShell = async (shell: HTMLDivElement) => {
+      const pageNumber = Number(shell.dataset.page);
+      const size = pageSizes[pageNumber - 1];
+      try {
+        const page = await pdf.getPage(pageNumber);
+        if (disposed || !shell.isConnected) return;
+
+        const scale = (containerWidth / size.width) * zoom;
+        const viewport = page.getViewport({ scale });
+        const outputScale = canvasScaleFor(viewport.width, viewport.height);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.floor(viewport.width * outputScale));
+        canvas.height = Math.max(1, Math.floor(viewport.height * outputScale));
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const task = page.render({
+          canvasContext: ctx,
+          canvas,
+          viewport,
+          transform:
+            outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined,
+        });
+        renderTasks.set(shell, task);
+        await task.promise;
+        renderTasks.delete(shell);
+        if (!disposed && shell.isConnected) shell.replaceChildren(canvas);
+      } catch (error) {
+        renderTasks.delete(shell);
+        if (!disposed && !isRenderingCancelled(error)) {
+          console.error(`PDF: renderowanie strony ${pageNumber} nie powiodło się`, error);
+        }
+      }
+    };
+
+    const releaseShell = (shell: HTMLDivElement) => {
+      renderTasks.get(shell)?.cancel();
+      renderTasks.delete(shell);
+      // Zwolnienie bitmapy — pusta biała ramka zachowuje wymiary (scroll
+      // się nie przesuwa), a pamięć canvasów pozostaje ograniczona.
+      shell.replaceChildren();
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const shell = entry.target as HTMLDivElement;
+          if (entry.isIntersecting) {
+            if (!renderTasks.has(shell) && shell.childElementCount === 0) {
+              void renderShell(shell);
+            }
+          } else {
+            releaseShell(shell);
+          }
+        }
+      },
+      // Prerender ~1,5 ekranu w każdą stronę — scroll bez pustych stron.
+      { root: scroller, rootMargin: '150% 0%' },
+    );
+
+    const shells = pageSizes.map((size, index) => {
+      const shell = document.createElement('div');
+      shell.className = 'pdf-page';
+      shell.dataset.page = String(index + 1);
+      const cssWidth = Math.floor(containerWidth * zoom);
+      shell.style.width = `${cssWidth}px`;
+      shell.style.height = `${Math.floor((size.height / size.width) * cssWidth)}px`;
+      return shell;
+    });
+    pagesEl.replaceChildren(...shells);
+    for (const shell of shells) observer.observe(shell);
+
+    return () => {
+      disposed = true;
+      observer.disconnect();
+      for (const task of renderTasks.values()) task.cancel();
+      renderTasks.clear();
+      pagesEl.replaceChildren();
+    };
+  }, [pdf, pageSizes, containerWidth, zoom]);
 
   // Pinch-zoom: dwa palce → preventDefault + skala; jeden palec → natywny scroll.
   useEffect(() => {

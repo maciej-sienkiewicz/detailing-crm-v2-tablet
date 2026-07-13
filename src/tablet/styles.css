@@ -439,14 +439,25 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  will-change: transform;
+  /* UWAGA: bez `will-change: transform` — wymusiłoby jedną gigantyczną
+     warstwę GPU na cały dokument, ponad limit tekstur iOS (białe strony).
+     Warstwa powstaje tymczasowo, gdy pinch ustawia transform inline. */
 }
 
 .pdf-page {
+  position: relative;
   background: #fff;
   border-radius: 4px;
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
   max-width: none;
+  overflow: hidden;
+}
+
+.pdf-page canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .pdf-zoom-controls {
@@ -514,6 +525,9 @@ body {
 
 .signature-screen {
   background: var(--bg);
+  /* Cały ekran podpisu bez gestów przeglądarki — dłoń oparta poza polem
+     podpisu nie może przeciągnąć/przewinąć strony (iPadOS). */
+  touch-action: none;
 }
 
 .signature-header {

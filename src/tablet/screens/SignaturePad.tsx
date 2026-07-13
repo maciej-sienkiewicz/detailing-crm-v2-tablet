@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PendingSignatureRequest } from '../api/types';
 import { MIN_INK_LENGTH_PX } from '../config';
 import { Countdown } from '../components/Countdown';
@@ -21,6 +21,18 @@ interface SignaturePadProps {
 export function SignaturePad({ request, onDone, onBack }: SignaturePadProps) {
   const canvasRef = useRef<SignatureCanvasHandle>(null);
   const [inkLength, setInkLength] = useState(0);
+
+  // Podczas podpisu żaden dotyk nie może przewijać/przeciągać strony.
+  // Sam canvas blokuje gesty, ale dłoń oparta o ekran POZA canvasem
+  // (nagłówek, stopka, tło) rozpoczyna na iPadzie natywny pan/rubber-band
+  // całej strony — klient widzi „przesuwanie okna aplikacji". Blokujemy
+  // touchmove globalnie na czas życia ekranu; tapnięcia w przyciski działają
+  // dalej (preventDefault na touchmove nie tłumi kliknięć).
+  useEffect(() => {
+    const blockTouchScroll = (event: TouchEvent) => event.preventDefault();
+    document.addEventListener('touchmove', blockTouchScroll, { passive: false });
+    return () => document.removeEventListener('touchmove', blockTouchScroll);
+  }, []);
 
   const hasSignature = inkLength >= MIN_INK_LENGTH_PX;
 

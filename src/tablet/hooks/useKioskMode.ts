@@ -10,7 +10,10 @@ import { useEffect } from 'react';
  */
 export function useKioskMode(): void {
   useEffect(() => {
-    const onPointerDown = () => {
+    // Fullscreen dopiero na pointerup (to też ważny gest aktywacji):
+    // wejście w fullscreen na pointerdown przerywało trwający ruch palca
+    // (pointercancel) i zmieniało rozmiar layoutu W TRAKCIE kreski podpisu.
+    const onPointerUp = () => {
       if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
         document.documentElement.requestFullscreen().catch(() => {
           // przeglądarka odmówiła (np. brak gestu) — spróbujemy przy kolejnym tapnięciu
@@ -23,12 +26,12 @@ export function useKioskMode(): void {
     // obsługujemy sami w PdfViewer (touchmove), więc nic nie tracimy.
     const onGesture = (event: Event) => event.preventDefault();
 
-    window.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('contextmenu', onContextMenu);
     window.addEventListener('gesturestart', onGesture);
     window.addEventListener('gesturechange', onGesture);
     return () => {
-      window.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('contextmenu', onContextMenu);
       window.removeEventListener('gesturestart', onGesture);
       window.removeEventListener('gesturechange', onGesture);

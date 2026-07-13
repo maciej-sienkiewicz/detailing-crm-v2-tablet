@@ -116,7 +116,7 @@ test('parowanie → standby → przegląd dokumentu → podpis → podziękowani
   mock.pendingAvailable = false;
 
   // Dokument wyrenderowany przez pdf.js z tych samych bajtów, które zahashowano.
-  await expect(page.locator('canvas.pdf-page').first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('.pdf-page canvas').first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(pending.signerName, { exact: false })).toBeVisible();
 
   // ── Oświadczenie: przycisk nieaktywny do zaznaczenia checkboxa ──
