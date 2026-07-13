@@ -64,7 +64,10 @@ export default function App() {
   if (docStoreRef.current === null) docStoreRef.current = new DocumentStore();
   const docStore = docStoreRef.current;
 
-  useKioskMode();
+  // Podczas składania podpisu fullscreen Safari musi być wyłączony —
+  // jego systemowy gest „przeciągnij, by wyjść" przesuwa cały widok
+  // pod palcem rysującym podpis (szczegóły w useKioskMode).
+  useKioskMode(state.name === 'SIGNATURE_PAD');
   useWakeLock(pairing !== null);
   // Samo-aktualizacja powłoki po deployu — reload wyłącznie w trybie czuwania,
   // nigdy w trakcie sesji podpisu (patrz useShellUpdate).
