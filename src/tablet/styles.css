@@ -269,15 +269,15 @@ body {
   position: relative;
   z-index: 1;
   text-align: center;
-  /* przesuń zegar nieco ku górze, żeby auto ładnie nachodziło na cyfry */
-  transform: translateY(-12%);
+  transform: translateY(-18%);
 }
 
 .standby-clock {
-  font-size: clamp(7rem, 22vw, 17rem);
-  font-weight: 200;
-  letter-spacing: 0.04em;
-  color: rgba(210, 218, 235, 0.88);
+  font-family: 'Outfit', -apple-system, 'Helvetica Neue', sans-serif;
+  font-size: clamp(8rem, 26vw, 20rem);
+  font-weight: 100;
+  letter-spacing: -0.01em;
+  color: rgba(230, 235, 245, 0.90);
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
@@ -292,16 +292,15 @@ body {
 /* Porsche nakrywające zegar — z-index wyższy niż .standby-center */
 .standby-car {
   position: absolute;
-  bottom: -1%;
+  bottom: -3%;
   left: 50%;
   transform: translateX(-50%);
-  width: 86%;
-  max-width: 980px;
+  width: 115%;
+  max-width: 1300px;
   z-index: 2;
   pointer-events: none;
   user-select: none;
-  /* lekkie rozjaśnienie, żeby biały kontur auta wtopił się w czarne tło */
-  filter: drop-shadow(0 -6px 32px rgba(0, 0, 0, 0.6));
+  filter: drop-shadow(0 -8px 40px rgba(0, 0, 0, 0.7));
 }
 
 .standby-footer {
