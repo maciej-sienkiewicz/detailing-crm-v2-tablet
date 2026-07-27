@@ -92,6 +92,22 @@ export function Standby({ deviceName, wsConnected, notice }: StandbyProps) {
         alt=""
         aria-hidden="true"
         draggable={false}
+        onLoad={(e) => {
+          const img = e.currentTarget;
+          console.info('[standby] porsche.png załadowane OK', img.naturalWidth, 'x', img.naturalHeight);
+        }}
+        onError={async () => {
+          try {
+            const res = await fetch('/porsche.png', { cache: 'no-store' });
+            const ct = res.headers.get('content-type') ?? '(brak)';
+            console.error(
+              `[standby] porsche.png błąd obrazka | HTTP ${res.status} | Content-Type: ${ct}`,
+              ct.includes('text/html') ? '← serwer zwrócił HTML zamiast PNG (plik nie istnieje w build)' : '',
+            );
+          } catch (err) {
+            console.error('[standby] porsche.png błąd obrazka | fetch nie powiódł się:', err);
+          }
+        }}
       />
 
       <div className="standby-footer">
