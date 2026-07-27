@@ -6,7 +6,7 @@
  * i zawierają dane osobowe). Takie żądania w ogóle nie są przechwytywane.
  */
 
-const SHELL_CACHE = 'detailboost-tablet-shell-v1';
+const SHELL_CACHE = 'detailboost-tablet-shell-v2';
 // version.json i sw.js: mechanizm samo-aktualizacji musi zawsze widzieć stan
 // z serwera — odpowiedź z cache maskowałaby nową wersję powłoki.
 const NEVER_CACHE = /^\/(api|ws-registry)(\/|$)|^\/(version\.json|sw\.js)$/;

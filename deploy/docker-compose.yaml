@@ -5,6 +5,14 @@ services:
     ports:
       - '${ENV_DETAILING_CRM_TABLET_EXTERNAL_PORT}:80'
     restart: always
+    environment:
+      # Adres backendu Spring Boot dostępny z wnętrza kontenera.
+      # Jeśli backend działa bezpośrednio na hoście (jak CRM): http://host.docker.internal:8080
+      # Jeśli backend jest kontenerem w tej samej sieci Docker: http://<nazwa-kontenera>:8080
+      BACKEND_URL: ${BACKEND_URL:-http://host.docker.internal:8080}
+    extra_hosts:
+      # Pozwala kontenerowi nginx dotrzeć do backendu działającego bezpośrednio na hoście
+      - "host.docker.internal:host-gateway"
     networks:
       - network
 
