@@ -19,8 +19,11 @@ RUN echo "Build date: ${BUILD_DATE:-$(date)}" > /app/dist/build-info.txt && \
 FROM nginx:alpine AS production-stage
 
 COPY --from=build-stage /app/dist /usr/share/nginx/html
-COPY ./deploy/nginx/nginx.conf /etc/nginx/conf.d/default.conf
+# Szablon nginx — BACKEND_URL podstawiany przez entrypoint.sh w chwili startu kontenera
+COPY ./deploy/nginx/nginx.conf /etc/nginx/conf.d/default.conf.template
+COPY ./deploy/nginx/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 80
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["/entrypoint.sh"]

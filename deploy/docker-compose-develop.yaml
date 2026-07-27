@@ -5,6 +5,10 @@ services:
     ports:
       - '${ENV_DETAILING_CRM_TABLET_EXTERNAL_PORT}:80'
     restart: always
+    environment:
+      BACKEND_URL: ${BACKEND_URL:-http://host.docker.internal:8080}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - network
 
