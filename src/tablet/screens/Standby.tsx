@@ -86,6 +86,14 @@ export function Standby({ deviceName, wsConnected, notice }: StandbyProps) {
         <div className="standby-date">{date}</div>
       </div>
 
+      <img
+        className="standby-car"
+        src="/porsche.png"
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+      />
+
       <div className="standby-footer">
         <span className="standby-logo" onClick={handleLogoTap}>
           DetailBoost
