@@ -6,10 +6,16 @@
  */
 export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'https://detailboost.pl';
 
-/** Endpoint SockJS/STOMP. SockJS wymaga adresu absolutnego. */
+/**
+ * Endpoint SockJS/STOMP. SockJS wymaga adresu absolutnego.
+ *
+ * WS idzie przez SAME ORIGIN (tablet.detailboost.pl/ws-registry), nie przez
+ * API_BASE_URL (detailboost.pl). Nginx tabletu ma blok /ws-registry który
+ * proxy'uje do backendu — dzięki temu SockJS handshake (/info) nie jest
+ * cross-origin i nie trafia na blokadę CORS/Spring Security przed STOMP CONNECT.
+ */
 export function wsRegistryUrl(): string {
-  const path = `${API_BASE_URL}/ws-registry`;
-  return path.startsWith('http') ? path : `${window.location.origin}${path}`;
+  return `${window.location.origin}/ws-registry`;
 }
 
 /** Ile ms pokazujemy ekran podziękowania / odmowy przed powrotem do czuwania. */
