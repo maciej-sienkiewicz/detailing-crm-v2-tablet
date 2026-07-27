@@ -274,6 +274,7 @@ body {
 
 .standby-clock {
   font-family: 'Outfit', -apple-system, 'Helvetica Neue', sans-serif;
+  /* landscape tablet/desktop — baza */
   font-size: clamp(8rem, 26vw, 20rem);
   font-weight: 300;
   letter-spacing: -0.01em;
@@ -284,7 +285,7 @@ body {
 
 .standby-date {
   margin-top: 12px;
-  font-size: 1.3rem;
+  font-size: clamp(0.9rem, 2vw, 1.3rem);
   color: #4a5060;
   text-transform: capitalize;
 }
@@ -305,15 +306,61 @@ body {
 
 .standby-footer {
   position: absolute;
-  left: 28px;
-  right: 28px;
-  bottom: 22px;
+  left: clamp(12px, 3vw, 28px);
+  right: clamp(12px, 3vw, 28px);
+  bottom: clamp(10px, 2.5vh, 22px);
   display: flex;
   justify-content: space-between;
   align-items: center;
   color: #3f4450;
-  font-size: 0.95rem;
+  font-size: clamp(0.7rem, 1.8vw, 0.95rem);
   z-index: 3;
+}
+
+/* ── Responsywność ekranu czuwania ── */
+
+/* Telefon poziomo (niska wysokość ekranu) */
+@media (orientation: landscape) and (max-height: 480px) {
+  .standby-clock {
+    font-size: clamp(3.5rem, 24vh, 8rem);
+  }
+  .standby-center {
+    transform: translateY(-8%);
+  }
+  .standby-car {
+    width: 75%;
+    bottom: -8%;
+    max-width: 600px;
+  }
+}
+
+/* Tablet pionowo */
+@media (orientation: portrait) and (min-width: 601px) {
+  .standby-clock {
+    font-size: clamp(6rem, 22vw, 14rem);
+  }
+  .standby-center {
+    transform: translateY(-22%);
+  }
+  .standby-car {
+    width: 120%;
+    bottom: -6%;
+  }
+}
+
+/* Telefon pionowo */
+@media (orientation: portrait) and (max-width: 600px) {
+  .standby-clock {
+    font-size: clamp(4.5rem, 21vw, 8rem);
+  }
+  .standby-center {
+    transform: translateY(-28%);
+  }
+  .standby-car {
+    width: 160%;
+    bottom: -2%;
+    max-width: 700px;
+  }
 }
 
 .standby-logo {
