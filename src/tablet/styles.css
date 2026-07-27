@@ -262,26 +262,46 @@ body {
   position: relative;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 }
 
 .standby-center {
+  position: relative;
+  z-index: 1;
   text-align: center;
+  /* przesuń zegar nieco ku górze, żeby auto ładnie nachodziło na cyfry */
+  transform: translateY(-12%);
 }
 
 .standby-clock {
-  font-size: clamp(6rem, 18vw, 13rem);
+  font-size: clamp(7rem, 22vw, 17rem);
   font-weight: 200;
   letter-spacing: 0.04em;
-  color: #cfd3dc;
+  color: rgba(210, 218, 235, 0.88);
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
 .standby-date {
-  margin-top: 16px;
+  margin-top: 12px;
   font-size: 1.3rem;
-  color: #5a5f6b;
+  color: #4a5060;
   text-transform: capitalize;
+}
+
+/* Porsche nakrywające zegar — z-index wyższy niż .standby-center */
+.standby-car {
+  position: absolute;
+  bottom: -1%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 86%;
+  max-width: 980px;
+  z-index: 2;
+  pointer-events: none;
+  user-select: none;
+  /* lekkie rozjaśnienie, żeby biały kontur auta wtopił się w czarne tło */
+  filter: drop-shadow(0 -6px 32px rgba(0, 0, 0, 0.6));
 }
 
 .standby-footer {
@@ -294,6 +314,7 @@ body {
   align-items: center;
   color: #3f4450;
   font-size: 0.95rem;
+  z-index: 3;
 }
 
 .standby-logo {
@@ -385,6 +406,7 @@ body {
   border: 1px solid var(--border);
   color: var(--text);
   text-align: center;
+  z-index: 3;
 }
 
 .offline-banner {
@@ -398,6 +420,7 @@ body {
   border: 1px solid #4a3a20;
   color: var(--warning);
   font-size: 0.95rem;
+  z-index: 3;
 }
 
 /* ── Przegląd dokumentu ── */
