@@ -5,6 +5,8 @@ import type { PendingSignatureRequest } from '../api/types';
  *
  * UNPAIRED → CONNECTING → STANDBY → DOCUMENT_REVIEW → SIGNATURE_PAD → SUBMITTING
  *   → THANK_YOU → STANDBY (oraz gałęzie: DECLINED_INFO, ERROR_SCREEN, powroty).
+ *   Gdy w kolejce czeka następny dokument, THANK_YOU przechodzi wprost
+ *   w DOCUMENT_REVIEW (REQUEST_RECEIVED), z pominięciem STANDBY.
  *
  * Reducer trzyma wyłącznie metadane (request z challenge, hash hex, znaczniki
  * czasu). Bufor PDF i bitmapa podpisu żyją poza maszyną (DocumentStore /
@@ -77,8 +79,12 @@ export function reduce(state: AppState, event: AppEvent): AppState {
       return { name: 'UNPAIRED', errorMessage: event.message ?? null };
 
     case 'REQUEST_RECEIVED':
-      // Wybudzenie tylko z czuwania — trwający przepływ nie może zostać wywłaszczony.
-      return state.name === 'STANDBY'
+      // Wybudzenie z czuwania albo prosto z ekranu podziękowania — po podpisie
+      // następny dokument z kolejki wchodzi bez powrotu do STANDBY i bez udziału
+      // pracownika. Trwający przepływ (przegląd, podpis, submit) nie może zostać
+      // wywłaszczony; DECLINED_INFO też nie — po odmowie klient najpierw widzi
+      // jej potwierdzenie, a kolejny dokument dopiero ze STANDBY.
+      return state.name === 'STANDBY' || state.name === 'THANK_YOU'
         ? {
             name: 'DOCUMENT_REVIEW',
             request: event.request,

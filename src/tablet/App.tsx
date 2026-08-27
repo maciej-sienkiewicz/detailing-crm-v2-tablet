@@ -5,19 +5,21 @@ import {
   declineSignature,
   getContext,
   getDocument,
-  getPendingRequest,
+  getSignatureQueue,
+  markDocumentDisplayed,
   pairTablet,
   submitSignature,
 } from './api/client';
 import { factoryResetTablet } from './api/reset';
 import { clearPairing, loadPairing, savePairing } from './api/storage';
-import type { PairingInfo, SignatureEvent } from './api/types';
-import { PENDING_POLL_MS, THANK_YOU_MS } from './config';
+import type { PairingInfo, PendingSignatureRequest, SignatureEvent } from './api/types';
+import { NEXT_DOCUMENT_MS, PENDING_POLL_MS, THANK_YOU_MS } from './config';
 import { sha256Hex } from './crypto/hash';
 import { useKioskMode } from './hooks/useKioskMode';
 import { useShellUpdate } from './hooks/useShellUpdate';
 import { useWakeLock } from './hooks/useWakeLock';
 import { DocumentStore } from './pdf/documentStore';
+import { PrefetchStore } from './pdf/prefetchStore';
 import { loadPdf } from './pdf/pdf';
 import { initialState, isOutsideSignatureFlow, reduce } from './state/machine';
 import { createTabletSocket } from './ws/stompClient';
@@ -64,6 +66,17 @@ export default function App() {
   if (docStoreRef.current === null) docStoreRef.current = new DocumentStore();
   const docStore = docStoreRef.current;
 
+  // Bufor dokumentów CZEKAJĄCYCH w kolejce (pobranych w tle) + migawka kolejki.
+  // Osobno od docStore — patrz nagłówek PrefetchStore. Kolejka w refie, nie w
+  // stanie: czyta ją tylko efekt prefetchu i przejście z THANK_YOU.
+  const prefetchStoreRef = useRef<PrefetchStore | null>(null);
+  if (prefetchStoreRef.current === null) prefetchStoreRef.current = new PrefetchStore();
+  const prefetchStore = prefetchStoreRef.current;
+  const queueRef = useRef<PendingSignatureRequest[]>([]);
+  // Licznik zmian składu kolejki — kolejka żyje w refie, więc bez tego efekt
+  // prefetchu nie widziałby dokumentów dosłanych, gdy klient już czyta pierwszy.
+  const [queueVersion, setQueueVersion] = useState(0);
+
   // Podczas składania podpisu fullscreen Safari musi być wyłączony —
   // jego systemowy gest „przeciągnij, by wyjść" przesuwa cały widok
   // pod palcem rysującym podpis (szczegóły w useKioskMode).
@@ -76,20 +89,38 @@ export default function App() {
   const forgetPairing = useCallback(() => {
     clearPairing();
     setPairing(null);
+    prefetchStoreRef.current?.wipe();
+    queueRef.current = [];
     dispatch({ type: 'TOKEN_REJECTED' });
   }, []);
 
   /**
-   * Źródło prawdy: GET /pending. Wywoływane po każdym zdarzeniu WS, po każdym
-   * reconnect, przy wejściu w STANDBY i w pollingu awaryjnym.
+   * Źródło prawdy: GET /queue (najstarsze pierwsze). Wywoływane po każdym
+   * zdarzeniu WS, po każdym reconnect, przy wejściu w STANDBY, w pollingu
+   * awaryjnym i podczas przepływu podpisu (odświeżenie kolejki dla prefetchu).
+   *
+   * `advanceFromThankYou` pozwala wejść w następny dokument prosto z ekranu
+   * podziękowania — jedyna ścieżka, którą REQUEST_RECEIVED opuszcza THANK_YOU.
    */
-  const checkPending = useCallback(async () => {
+  const checkPending = useCallback(async (options?: { advanceFromThankYou?: boolean }) => {
     const currentPairing = pairingRef.current;
-    if (!currentPairing || stateRef.current.name !== 'STANDBY') return;
+    if (!currentPairing) return;
     try {
-      const pending = await getPendingRequest(currentPairing.token);
-      if (pending && stateRef.current.name === 'STANDBY') {
-        dispatch({ type: 'REQUEST_RECEIVED', request: pending });
+      const queue = await getSignatureQueue(currentPairing.token);
+      const changed =
+        queue.map((request) => request.requestId).join(',') !==
+        queueRef.current.map((request) => request.requestId).join(',');
+      queueRef.current = queue;
+      if (changed) setQueueVersion((version) => version + 1);
+      // Dokument, który wypadł z kolejki (podpisany gdzie indziej, anulowany,
+      // wygasły), nie ma prawa zostać w buforze prefetchu.
+      prefetchStoreRef.current?.retainOnly(new Set(queue.map((request) => request.requestId)));
+
+      const next = queue[0];
+      if (!next) return;
+      const stateName = stateRef.current.name;
+      if (stateName === 'STANDBY' || (stateName === 'THANK_YOU' && options?.advanceFromThankYou)) {
+        dispatch({ type: 'REQUEST_RECEIVED', request: next });
       }
     } catch {
       // chwilowy błąd sieci/serwera — kolejna próba przy następnym sygnale/pollingu
@@ -147,6 +178,8 @@ export default function App() {
         if (notice) {
           dispatch({ type: 'REQUEST_CANCELLED', requestId: event.requestId, notice });
         }
+        // Zakończone żądanie nie ma prawa zostać w buforze prefetchu.
+        prefetchStoreRef.current?.drop(event.requestId);
         // WS to tylko sygnał — REST rozstrzyga, czy coś czeka.
         void checkPending();
       },
@@ -182,13 +215,38 @@ export default function App() {
     const request = currentState.request;
     let cancelled = false;
 
+    /**
+     * Bajty dokumentu: najpierw bufor prefetchu, dopiero potem sieć.
+     *
+     * Ścieżka z prefetchu MUSI zgłosić wyświetlenie (POST /displayed) i to
+     * zgłoszenie musi się UDAĆ: submit po stronie serwera wymaga statusu
+     * DISPLAYED (SignatureRequest.complete), więc ciche niepowodzenie tutaj
+     * zablokowałoby podpis dopiero na samym końcu, przy kliencie. Gdy
+     * zgłoszenie nie przechodzi, bufor idzie do kosza i pobieramy normalnie —
+     * zwykły GET /document ustawia DISPLAYED sam.
+     */
+    const obtainBytes = async (): Promise<{ buffer: ArrayBuffer; headerSha256: string | null }> => {
+      const prefetched = prefetchStore.take(request.requestId);
+      if (prefetched) {
+        try {
+          await markDocumentDisplayed(currentPairing.token, request.requestId);
+          return { buffer: prefetched, headerSha256: null };
+        } catch {
+          // Bufor może być nieaktualny względem stanu serwera — nie ryzykujemy.
+        }
+      }
+      return getDocument(currentPairing.token, request.requestId);
+    };
+
     (async () => {
       try {
-        const { buffer, headerSha256 } = await getDocument(currentPairing.token, request.requestId);
+        const { buffer, headerSha256 } = await obtainBytes();
         const computed = await sha256Hex(buffer);
         const expectedFromPending = request.documentSha256.toLowerCase();
 
         // Twardy błąd przy JAKIEJKOLWIEK rozbieżności — dokumentu nie renderujemy.
+        // Dla bajtów z prefetchu headerSha256 jest null, ale hash z /queue
+        // pochodzi z tego samego źródła co hash z /pending — warunek bez zmian.
         if (computed !== expectedFromPending || (headerSha256 !== null && computed !== headerSha256)) {
           if (!cancelled) dispatch({ type: 'REQUEST_FAILED', message: INTEGRITY_ERROR_MESSAGE });
           return;
@@ -209,7 +267,65 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [needsDocument, reviewRequestId, docStore]);
+  }, [needsDocument, reviewRequestId, docStore, prefetchStore]);
+
+  // ── Prefetch kolejnych dokumentów z kolejki, gdy klient czyta bieżący ──
+  // Czas czytania i podpisywania (kilkanaście-kilkadziesiąt sekund) z nawiązką
+  // pokrywa pobranie; po podpisie następny dokument wchodzi z pamięci.
+  // Sekwencyjnie, nie równolegle — jeden transfer na raz nie walczy o pasmo
+  // z niczym innym, a kolejność pobierania i tak odpowiada kolejności podpisu.
+  const inSignatureFlow =
+    state.name === 'DOCUMENT_REVIEW' || state.name === 'SIGNATURE_PAD' || state.name === 'SUBMITTING';
+  const activeFlowRequestId = inSignatureFlow ? state.request.requestId : null;
+  const prefetchBusyRef = useRef(false);
+  useEffect(() => {
+    if (!activeFlowRequestId || prefetchBusyRef.current) return;
+    const currentPairing = pairingRef.current;
+    if (!currentPairing) return;
+    let cancelled = false;
+
+    // Każdy obrót pętli skanuje queueRef NA ŚWIEŻO: dokument dosłany w trakcie
+    // pobierania poprzedniego zostaje podjęty w tym samym przebiegu, a wpis,
+    // który tymczasem wypadł z kolejki, przestaje być kandydatem.
+    const nextCandidate = () =>
+      queueRef.current.find(
+        (queued) => queued.requestId !== activeFlowRequestId && !prefetchStore.has(queued.requestId),
+      );
+
+    prefetchBusyRef.current = true;
+    (async () => {
+      try {
+        const attempted = new Set<string>();
+        for (let queued = nextCandidate(); queued && !cancelled; queued = nextCandidate()) {
+          // Jedno podejście na dokument w tym przebiegu — inaczej stale
+          // niepobieralny wpis zapętliłby skan.
+          if (attempted.has(queued.requestId)) break;
+          attempted.add(queued.requestId);
+          try {
+            const { buffer, headerSha256 } = await getDocument(currentPairing.token, queued.requestId, {
+              prefetch: true,
+            });
+            const computed = await sha256Hex(buffer);
+            const matches =
+              computed === queued.documentSha256.toLowerCase() &&
+              (headerSha256 === null || computed === headerSha256);
+            // Niezgodny bufor po prostu nie wchodzi do magazynu — ścieżka
+            // wyświetlenia pobierze na świeżo i tam rozstrzygnie twardy błąd.
+            if (matches && !cancelled) prefetchStore.set(queued.requestId, buffer);
+          } catch {
+            // Prefetch to optymalizacja: nieudane pobranie nie może niczego
+            // przerwać, dokument zejdzie normalną ścieżką przy wyświetleniu.
+          }
+        }
+      } finally {
+        prefetchBusyRef.current = false;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeFlowRequestId, queueVersion, prefetchStore]);
 
   // ── Sprzątanie pamięci przy każdym wyjściu z przepływu podpisu ──
   useEffect(() => {
@@ -238,6 +354,22 @@ export default function App() {
     const timer = setTimeout(() => dispatch({ type: 'DISMISS' }), THANK_YOU_MS);
     return () => clearTimeout(timer);
   }, [state.name]);
+
+  // ── Następny dokument z kolejki prosto z ekranu podziękowania ──
+  // Potwierdzenie miga NEXT_DOCUMENT_MS i wchodzi kolejny dokument — bez
+  // powrotu do STANDBY i bez klikania przez pracownika. Gdy kolejka jest
+  // pusta, nic się nie dzieje i timer DISMISS wyżej domyka przepływ po
+  // pełnych THANK_YOU_MS. Po odmowie (DECLINED_INFO) celowo NIE wchodzimy
+  // od razu — klient najpierw widzi potwierdzenie odmowy, a następny
+  // dokument dopiero ze STANDBY.
+  useEffect(() => {
+    if (state.name !== 'THANK_YOU') return;
+    const timer = setTimeout(
+      () => void checkPending({ advanceFromThankYou: true }),
+      NEXT_DOCUMENT_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [state.name, checkPending]);
 
   // ── Akcje użytkownika ──
 

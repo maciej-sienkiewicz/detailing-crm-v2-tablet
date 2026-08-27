@@ -6,6 +6,11 @@ import { buildTestPdf } from './fixtures/pdf';
  * E2E ścieżki krytycznej: parowanie → standby → podpis (mock API przez
  * page.route). Endpoint /ws-registry jest blokowany, więc test weryfikuje
  * jednocześnie fallback pollingu `pending` (DoD pkt 6).
+ *
+ * Mock CELOWO nie serwuje /signature-requests/queue w testach jednodokumentowych
+ * (odpowiada na nie proxy deva błędem) — dzięki temu przechodzą one przez
+ * fallback queue → pending, czyli ścieżkę tabletu ze starszym backendem.
+ * Kolejkę wielodokumentową pokrywa osobny test niżej.
  */
 
 const PDF_BYTES = buildTestPdf();
@@ -458,4 +463,127 @@ test('5 tapnięć w logo na ekranie czuwania rozparowuje tablet po potwierdzeniu
   await page.getByRole('button', { name: 'Wyczyść i rozparuj' }).click();
   await expect(page.getByRole('heading', { name: 'Sparuj tablet' })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('detailboost.tablet.pairing'))).toBeNull();
+});
+
+/* ─── Kolejka wielodokumentowa: prefetch + auto-przejście po podpisie ───────── */
+
+/** Rysuje podpis i klika „Gotowe" — wspólne dla obu dokumentów w kolejce. */
+async function signCurrentDocument(page: Page) {
+  await expect(page.locator('.pdf-page canvas').first()).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('checkbox').check();
+  await page.getByRole('button', { name: 'Przejdź do podpisu' }).click();
+
+  const canvas = page.locator('canvas.signature-canvas');
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('Brak pola podpisu');
+  await page.mouse.move(box.x + 60, box.y + box.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 24; i++) {
+    await page.mouse.move(box.x + 60 + i * 12, box.y + box.height / 2 + Math.sin(i / 2) * 40, {
+      steps: 2,
+    });
+  }
+  await page.mouse.up();
+  await page.getByRole('button', { name: 'Gotowe' }).click();
+}
+
+test('kolejka dwóch dokumentów: drugi prefetchowany w tle i wyświetlony zaraz po podpisie pierwszego', async ({
+  page,
+}) => {
+  const first = { ...pendingRequest(), requestId: 'aaaa0000-0000-0000-0000-000000000001' };
+  const second = {
+    ...pendingRequest(),
+    requestId: 'aaaa0000-0000-0000-0000-000000000002',
+    documentName: 'Zgody marketingowe',
+    challenge: 'nonce-doc-2',
+  };
+  first.documentUrl = `/api/tablet/signature-requests/${first.requestId}/document`;
+  second.documentUrl = `/api/tablet/signature-requests/${second.requestId}/document`;
+
+  // Kolejka na serwerze — submit dokumentu zdejmuje go z niej, jak w realnym API.
+  const queue = [first, second];
+  const documentFetches: Array<{ requestId: string; prefetch: boolean }> = [];
+  const displayedCalls: string[] = [];
+
+  await page.route('**/ws-registry**', (route) => route.abort());
+  await page.route('**/api/tablet/context', (route) =>
+    route.fulfill({
+      status: 200,
+      json: { tabletId: PAIRING.tabletId, studioId: PAIRING.studioId, deviceName: 'Recepcja 1' },
+    }),
+  );
+  await page.route('**/api/tablet/signature-requests/queue', (route) =>
+    route.fulfill({ status: 200, json: { requests: queue } }),
+  );
+  // Stary endpoint nie może być w tym teście używany — kolejka jest dostępna.
+  await page.route('**/api/tablet/signature-requests/pending', (route) =>
+    route.fulfill({ status: 500, json: { message: 'pending nie powinien być wołany' } }),
+  );
+
+  for (const request of [first, second]) {
+    await page.route(`**/api/tablet/signature-requests/${request.requestId}/document**`, (route) => {
+      documentFetches.push({
+        requestId: request.requestId,
+        prefetch: new URL(route.request().url()).searchParams.get('prefetch') === 'true',
+      });
+      return route.fulfill({
+        status: 200,
+        body: PDF_BYTES,
+        headers: {
+          'Content-Type': 'application/pdf',
+          'X-Document-Sha256': PDF_SHA256,
+          'Cache-Control': 'no-store',
+        },
+      });
+    });
+    await page.route(`**/api/tablet/signature-requests/${request.requestId}/displayed`, (route) => {
+      displayedCalls.push(request.requestId);
+      return route.fulfill({ status: 204, body: '' });
+    });
+    await page.route(`**/api/tablet/signature-requests/${request.requestId}/submit`, (route) => {
+      const index = queue.findIndex((entry) => entry.requestId === request.requestId);
+      if (index >= 0) queue.splice(index, 1);
+      return route.fulfill({
+        status: 200,
+        json: { requestId: request.requestId, status: 'COMPLETED', sealApplied: true, timestampApplied: true },
+      });
+    });
+  }
+
+  await page.addInitScript(
+    ([key, value]) => localStorage.setItem(key, value),
+    [
+      'detailboost.tablet.pairing',
+      JSON.stringify({
+        token: PAIRING.token,
+        tabletId: PAIRING.tabletId,
+        studioId: PAIRING.studioId,
+        deviceName: 'Recepcja 1',
+      }),
+    ] as const,
+  );
+
+  await page.goto('/');
+
+  // ── Dokument 1 z kolejki wchodzi ze STANDBY ──
+  await expect(page.getByText(first.documentName)).toBeVisible({ timeout: 20_000 });
+  await signCurrentDocument(page);
+
+  // ── Dokument 2 pojawia się SAM, bez udziału pracownika ──
+  // (miga potwierdzenie, po NEXT_DOCUMENT_MS wchodzi kolejny przegląd)
+  await expect(page.getByText(second.documentName)).toBeVisible({ timeout: 15_000 });
+
+  // Prefetch zrobił swoje: bajty dokumentu 2 zeszły w tle podczas czytania
+  // pierwszego, a wyświetlenie zostało zgłoszone przez /displayed.
+  expect(documentFetches).toContainEqual({ requestId: second.requestId, prefetch: true });
+  expect(displayedCalls).toContain(second.requestId);
+  // Dokument 2 nie był pobierany drugi raz zwykłą ścieżką.
+  expect(
+    documentFetches.filter((fetch) => fetch.requestId === second.requestId && !fetch.prefetch),
+  ).toHaveLength(0);
+
+  await signCurrentDocument(page);
+
+  // ── Kolejka pusta → powrót do czuwania ──
+  await expect(page.locator('.standby-clock')).toBeVisible({ timeout: 10_000 });
 });

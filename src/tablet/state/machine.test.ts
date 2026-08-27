@@ -86,11 +86,38 @@ describe('odbiór żądania podpisu', () => {
     });
   });
 
-  it('REQUEST_RECEIVED jest ignorowane poza STANDBY (brak wywłaszczenia)', () => {
+  it('REQUEST_RECEIVED w THANK_YOU otwiera następny dokument z kolejki', () => {
+    // Kilka dokumentów wysłanych jednym kliknięciem: po podpisie pierwszego
+    // drugi ma wejść prosto z ekranu podziękowania, bez powrotu do czuwania
+    // i bez udziału pracownika.
+    const nextRequest: PendingSignatureRequest = {
+      ...request,
+      requestId: 'req-2',
+      documentName: 'Zgody marketingowe',
+      challenge: 'nonce-2',
+    };
+    const state = reduce({ name: 'THANK_YOU' }, { type: 'REQUEST_RECEIVED', request: nextRequest });
+    expect(state).toEqual({
+      name: 'DOCUMENT_REVIEW',
+      request: nextRequest,
+      verifiedSha256: null,
+      declarationAccepted: false,
+      declarationAcceptedAt: null,
+    });
+  });
+
+  it('REQUEST_RECEIVED jest ignorowane w trakcie przepływu (brak wywłaszczenia)', () => {
     const review = reviewReady();
     expect(reduce(review, { type: 'REQUEST_RECEIVED', request })).toBe(review);
     const pad = signaturePad();
     expect(reduce(pad, { type: 'REQUEST_RECEIVED', request })).toBe(pad);
+    const submitting = reduce(pad, { type: 'SUBMIT_STARTED' });
+    expect(reduce(submitting, { type: 'REQUEST_RECEIVED', request })).toBe(submitting);
+  });
+
+  it('REQUEST_RECEIVED jest ignorowane po odmowie — potwierdzenie odmowy ma dojść do klienta', () => {
+    const declined: AppState = { name: 'DECLINED_INFO' };
+    expect(reduce(declined, { type: 'REQUEST_RECEIVED', request })).toBe(declined);
   });
 });
 

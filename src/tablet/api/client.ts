@@ -124,6 +124,38 @@ export async function getContext(token: string): Promise<TabletContext> {
   return parseJsonUtf8<TabletContext>(response);
 }
 
+/** Naprawa mojibake w treści oświadczenia — wspólna dla /pending i /queue. */
+function repairRequestEncoding(request: PendingSignatureRequest): PendingSignatureRequest {
+  return { ...request, declarationText: repairMojibake(request.declarationText) };
+}
+
+/**
+ * GET /api/tablet/signature-requests/queue — pełna kolejka FIFO aktywnych żądań,
+ * najstarsze pierwsze. Pozycja 0 to bieżący dokument; dalsze pozycje istnieją,
+ * żeby tablet mógł pobrać ich bajty w tle, zanim klient skończy czytać pierwszy.
+ *
+ * Backend sprzed kolejki nie zna tego endpointu (404; powłoka tabletu
+ * aktualizuje się sama, więc bywa nowsza niż backend) — każdy błąd HTTP
+ * przechodzi w /pending, czyli kolejkę jednoelementową. To bezpieczna
+ * degradacja także przy chwilowym 5xx: /pending niesie dokładnie ten dokument,
+ * który ma być podpisany teraz, a kolejka to wyłącznie optymalizacja.
+ * NetworkError NIE jest maskowany — bez sieci /pending poległby tak samo.
+ */
+export async function getSignatureQueue(token: string): Promise<PendingSignatureRequest[]> {
+  let response: Response;
+  try {
+    response = await apiFetch('/api/tablet/signature-requests/queue', { token });
+  } catch (error) {
+    if (error instanceof ApiError) {
+      const pending = await getPendingRequest(token);
+      return pending ? [pending] : [];
+    }
+    throw error;
+  }
+  const result = await parseJsonUtf8<{ requests: PendingSignatureRequest[] }>(response);
+  return result.requests.map(repairRequestEncoding);
+}
+
 /** GET /api/tablet/signature-requests/pending — 204 → null. */
 export async function getPendingRequest(token: string): Promise<PendingSignatureRequest | null> {
   const response = await apiFetch('/api/tablet/signature-requests/pending', { token });
@@ -171,17 +203,37 @@ export interface DocumentPayload {
 
 /**
  * GET /api/tablet/signature-requests/{id}/document — pobiera dokładne bajty PDF.
- * Uwaga: to wywołanie zmienia status sesji na DISPLAYED po stronie serwera —
- * wywołuj dopiero, gdy dokument faktycznie będzie wyświetlony.
+ *
+ * Bez `prefetch` wywołanie zmienia status sesji na DISPLAYED po stronie
+ * serwera — wywołuj dopiero, gdy dokument faktycznie będzie wyświetlony.
+ * Z `prefetch: true` schodzą te same bajty, ale status zostaje nietknięty;
+ * faktyczne wyświetlenie zgłasza wtedy [markDocumentDisplayed].
  */
-export async function getDocument(token: string, requestId: string): Promise<DocumentPayload> {
+export async function getDocument(
+  token: string,
+  requestId: string,
+  options: { prefetch?: boolean } = {},
+): Promise<DocumentPayload> {
+  const suffix = options.prefetch ? '?prefetch=true' : '';
   const response = await apiFetch(
-    `/api/tablet/signature-requests/${encodeURIComponent(requestId)}/document`,
+    `/api/tablet/signature-requests/${encodeURIComponent(requestId)}/document${suffix}`,
     { token, timeoutMs: 30_000 },
   );
   const headerSha256 = response.headers.get('X-Document-Sha256');
   const buffer = await response.arrayBuffer();
   return { buffer, headerSha256: headerSha256 ? headerSha256.toLowerCase() : null };
+}
+
+/**
+ * POST /api/tablet/signature-requests/{id}/displayed — dokument pobrany
+ * prefetchem właśnie pojawił się na ekranie. Idempotentny; w CRM dopiero to
+ * wywołanie zapala status „klient widzi dokument".
+ */
+export async function markDocumentDisplayed(token: string, requestId: string): Promise<void> {
+  await apiFetch(`/api/tablet/signature-requests/${encodeURIComponent(requestId)}/displayed`, {
+    method: 'POST',
+    token,
+  });
 }
 
 /** POST /api/tablet/signature-requests/{id}/submit — jednorazowy (challenge!). Nie ponawiać. */
