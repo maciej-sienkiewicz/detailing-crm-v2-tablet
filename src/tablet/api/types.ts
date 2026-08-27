@@ -47,8 +47,6 @@ export interface SubmitSignatureRequest {
 export interface SignatureResultResponse {
   requestId: string;
   status: 'COMPLETED' | 'DECLINED' | string;
-  sealApplied: boolean;
-  timestampApplied: boolean;
 }
 
 export interface ApiErrorBody {
