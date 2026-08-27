@@ -28,7 +28,7 @@ export class NetworkError extends Error {
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
-/** Submit trwa dłużej — serwer scala PDF i nakłada pieczęć (2–8 s). */
+/** Submit trwa dłużej — serwer scala PDF z podpisem i Kartą Podpisu, po czym wysyła go do S3. */
 const SUBMIT_TIMEOUT_MS = 45_000;
 
 interface RequestOptions {

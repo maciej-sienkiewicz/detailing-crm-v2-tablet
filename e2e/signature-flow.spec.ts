@@ -86,8 +86,6 @@ async function installApiMocks(page: Page, mock: MockState) {
       json: {
         requestId: pending.requestId,
         status: 'COMPLETED',
-        sealApplied: true,
-        timestampApplied: true,
       },
     });
   });
@@ -347,8 +345,6 @@ test('samo-aktualizacja nie przerywa sesji podpisu — reload dopiero po powroci
       json: {
         requestId: pending.requestId,
         status: 'DECLINED',
-        sealApplied: false,
-        timestampApplied: false,
       },
     }),
   );
@@ -545,7 +541,7 @@ test('kolejka dwóch dokumentów: drugi prefetchowany w tle i wyświetlony zaraz
       if (index >= 0) queue.splice(index, 1);
       return route.fulfill({
         status: 200,
-        json: { requestId: request.requestId, status: 'COMPLETED', sealApplied: true, timestampApplied: true },
+        json: { requestId: request.requestId, status: 'COMPLETED' },
       });
     });
   }
