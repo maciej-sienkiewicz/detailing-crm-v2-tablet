@@ -21,6 +21,14 @@ export function wsRegistryUrl(): string {
 /** Ile ms pokazujemy ekran podziękowania / odmowy przed powrotem do czuwania. */
 export const THANK_YOU_MS = 4000;
 
+/**
+ * Ile ms po podpisie czekamy, zanim wyświetlimy NASTĘPNY dokument z kolejki.
+ * Krótsze niż THANK_YOU_MS: potwierdzenie ma mignąć na tyle długo, żeby klient
+ * wiedział, że podpis przeszedł, ale kolejny dokument nie może kazać na siebie
+ * czekać — po to istnieje prefetch.
+ */
+export const NEXT_DOCUMENT_MS = 1500;
+
 /** Interwał pollingu `pending`, gdy WebSocket jest rozłączony. */
 export const PENDING_POLL_MS = 10_000;
 
