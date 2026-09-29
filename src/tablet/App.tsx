@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
   ApiError,
-  NetworkError,
   declineSignature,
   getContext,
   getDocument,
@@ -18,6 +17,7 @@ import { useKioskMode } from './hooks/useKioskMode';
 import { useShellUpdate } from './hooks/useShellUpdate';
 import { useWakeLock } from './hooks/useWakeLock';
 import { DocumentStore } from './pdf/documentStore';
+import { describeError } from './errors';
 import { loadPdf } from './pdf/pdf';
 import { initialState, isOutsideSignatureFlow, reduce } from './state/machine';
 import { createTabletSocket } from './ws/stompClient';
@@ -40,13 +40,6 @@ const CANCEL_NOTICES: Partial<Record<SignatureEvent['type'], string>> = {
   SIGNATURE_FAILED: 'Sesja podpisu została zakończona przez system.',
 };
 
-function describeError(error: unknown): string {
-  if (error instanceof ApiError) return error.message;
-  if (error instanceof NetworkError) {
-    return 'Błąd połączenia z serwerem. Nie ponawiaj — wezwij pracownika (stan sesji widać w CRM).';
-  }
-  return 'Wystąpił nieoczekiwany błąd. Wezwij pracownika recepcji.';
-}
 
 export default function App() {
   const [pairing, setPairing] = useState<PairingInfo | null>(() => loadPairing());

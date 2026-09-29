@@ -459,3 +459,83 @@ test('5 tapnięć w logo na ekranie czuwania rozparowuje tablet po potwierdzeniu
   await expect(page.getByRole('heading', { name: 'Sparuj tablet' })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('detailboost.tablet.pairing'))).toBeNull();
 });
+
+/** Zaznacza oświadczenie, rysuje podpis i wysyła - wspólne dla scenariuszy podpisu. */
+async function acceptAndSign(page: Page) {
+  await expect(page.locator('.pdf-page canvas').first()).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('checkbox').check();
+  await page.getByRole('button', { name: 'Przejdź do podpisu' }).click();
+  const canvas = page.locator('canvas.signature-canvas');
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('Brak pola podpisu');
+  await page.mouse.move(box.x + 60, box.y + box.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 24; i++) {
+    await page.mouse.move(box.x + 60 + i * 12, box.y + box.height / 2 + Math.sin(i / 2) * 40, {
+      steps: 2,
+    });
+  }
+  await page.mouse.up();
+  await page.getByRole('button', { name: 'Gotowe' }).click();
+}
+
+/**
+ * Zgłoszenie z 29.09, ok. 13:40. Szkic wizyty A anulowano w CRM („Anuluj wizytę"),
+ * a auto przyjęto od nowa - wizyta B dostała własne protokoły. Tablet miał na
+ * ekranie protokół A; podpis kończył się 404 „Wizyta nie została znaleziona".
+ *
+ * Kontrakt, na którym stoi poprawka po stronie serwera (kolejka pomija żądania
+ * usuniętych wizyt): po błędzie tablet NIE trzyma starego dokumentu, tylko pyta
+ * serwer od nowa i pokazuje to, co serwer poda - tu protokół nowej wizyty.
+ * Klient zamiast surowego komunikatu serwera widzi zdanie, co ma zrobić.
+ */
+test('dokument usuniętej wizyty: czytelny błąd, po OK tablet pokazuje dokument nowej wizyty', async ({
+  page,
+}) => {
+  const mock: MockState = { pendingAvailable: true, submitBody: null, documentFetches: 0 };
+  const orphan = await installApiMocks(page, mock);
+  const fresh = {
+    ...pendingRequest(),
+    requestId: 'c9f30000-0000-0000-0000-000000000004',
+    documentName: 'Protokół przyjęcia pojazdu - wizyta z rezerwacji',
+    documentUrl: '/api/tablet/signature-requests/c9f30000-0000-0000-0000-000000000004/document',
+  };
+  let orphanSubmitted = false;
+
+  // Serwer po poprawce: dopóki nikt nie próbował podpisać, na czele kolejki stoi
+  // osierocony protokół (tak było na produkcji); po błędzie - już dokument B.
+  await page.route('**/api/tablet/signature-requests/pending', (route) =>
+    route.fulfill({ status: 200, json: orphanSubmitted ? fresh : { ...orphan } }),
+  );
+  await page.route(`**/api/tablet/signature-requests/${orphan.requestId}/submit`, (route) => {
+    orphanSubmitted = true;
+    return route.fulfill({
+      status: 404,
+      json: { status: 404, message: 'Wizyta nie została znaleziona' },
+    });
+  });
+  await page.route(`**/api/tablet/signature-requests/${fresh.requestId}/document`, (route) =>
+    route.fulfill({
+      status: 200,
+      body: PDF_BYTES,
+      headers: { 'Content-Type': 'application/pdf', 'X-Document-Sha256': PDF_SHA256 },
+    }),
+  );
+
+  await presetPairing(page);
+  await page.goto('/');
+
+  // ── Protokół wizyty A (usuniętej) ──
+  await expect(page.getByText(orphan.documentName, { exact: true })).toBeVisible({ timeout: 20_000 });
+  await acceptAndSign(page);
+
+  // ── Błąd dla klienta, nie dla programisty ──
+  await expect(page.getByRole('heading', { name: 'Wystąpił problem' })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('Ten dokument nie jest już aktualny', { exact: false })).toBeVisible();
+  await expect(page.getByText('Wizyta nie została znaleziona')).toHaveCount(0);
+
+  // ── OK → tablet pyta serwer od nowa i dostaje protokół nowej wizyty ──
+  await page.getByRole('button', { name: 'OK' }).click();
+  await expect(page.getByText(fresh.documentName)).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('.pdf-page canvas').first()).toBeVisible({ timeout: 20_000 });
+});
