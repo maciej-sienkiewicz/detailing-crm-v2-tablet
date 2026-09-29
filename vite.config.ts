@@ -30,6 +30,11 @@ function versionJsonPlugin(): Plugin {
   };
 }
 
+// Dokąd dev server przekazuje /api i /ws-registry. WS idzie zawsze przez ten sam
+// origin (config.ts), więc bez tego pełny test (playwright.fullstack.config.ts)
+// łączyłby REST z E2E_BACKEND_URL, a WebSocket i tak z localhost:8080.
+const devProxyTarget = process.env.DEV_PROXY_TARGET || 'http://localhost:8080';
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), versionJsonPlugin()],
@@ -45,11 +50,11 @@ export default defineConfig({
     port: 5175,
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: devProxyTarget,
         changeOrigin: true,
       },
       '/ws-registry': {
-        target: 'http://localhost:8080',
+        target: devProxyTarget,
         changeOrigin: true,
         ws: true,
       },

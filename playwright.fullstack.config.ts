@@ -35,9 +35,12 @@ export default defineConfig({
   webServer: {
     command: 'npm run dev -- --port 5174 --strictPort',
     url: 'http://localhost:5174',
-    reuseExistingServer: !process.env.CI,
+    // Nigdy nie reużywamy: serwer z innym E2E_BACKEND_URL po cichu testowałby inny backend.
+    reuseExistingServer: false,
     // Backend dopuszcza CORS i handshake WS z http://localhost:* - tablet łączy się
     // z nim wprost, tak jak na produkcji, razem z WebSocketem.
-    env: { VITE_API_BASE_URL: BACKEND_URL },
+    // WS idzie przez ten sam origin (jak przez nginx tabletu na produkcji), czyli przez
+    // proxy dev servera - stąd DEV_PROXY_TARGET.
+    env: { VITE_API_BASE_URL: BACKEND_URL, DEV_PROXY_TARGET: BACKEND_URL },
   },
 });
