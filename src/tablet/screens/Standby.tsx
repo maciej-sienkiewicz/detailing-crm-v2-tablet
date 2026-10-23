@@ -112,7 +112,7 @@ export function Standby({ deviceName, wsConnected, notice }: StandbyProps) {
 
       <div className="standby-footer">
         <span className="standby-logo" onClick={handleLogoTap}>
-          DetailBoost
+          <img className="standby-logo-img" src="/brand/detailboost-horizontal-white.svg" alt="DetailBoost" />
           <span className="standby-version" title="Wersja powłoki aplikacji">
             {SHELL_VERSION}
           </span>

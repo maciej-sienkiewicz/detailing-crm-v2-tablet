@@ -364,8 +364,16 @@ body {
 }
 
 .standby-logo {
+  display: inline-flex;
+  align-items: center;
   font-weight: 700;
   letter-spacing: 0.06em;
+}
+
+.standby-logo-img {
+  display: block;
+  height: 1.1em;
+  width: auto;
 }
 
 /* Potwierdzenie rozparowania (wejście serwisowe: 5 tapnięć w logo). */
