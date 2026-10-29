@@ -290,14 +290,17 @@ body {
   text-transform: capitalize;
 }
 
-/* Porsche nakrywające zegar — z-index wyższy niż .standby-center */
+/* Porsche nakrywające zegar — z-index wyższy niż .standby-center.
+   gt4rs.png jest przycięty ciasno (auto ~94% szerokości pliku, ~8% marginesu
+   pod kołami), więc szerokości i odsunięcia od dołu są mniejsze niż przy
+   dawnym porsche.png, który miał szeroki pusty margines dookoła auta. */
 .standby-car {
   position: absolute;
-  bottom: -10%;
+  bottom: 18%;
   left: 50%;
   transform: translateX(-50%);
-  width: 115%;
-  max-width: 1300px;
+  width: 83%;
+  max-width: 990px;
   z-index: 2;
   pointer-events: none;
   user-select: none;
@@ -328,9 +331,9 @@ body {
     transform: translateY(-8%);
   }
   .standby-car {
-    width: 75%;
-    bottom: -8%;
-    max-width: 600px;
+    width: 54%;
+    bottom: 19%;
+    max-width: 457px;
   }
 }
 
@@ -343,8 +346,8 @@ body {
     transform: translateY(-22%);
   }
   .standby-car {
-    width: 120%;
-    bottom: -6%;
+    width: 86%;
+    bottom: 7%;
   }
 }
 
@@ -357,9 +360,9 @@ body {
     transform: translateY(-28%);
   }
   .standby-car {
-    width: 160%;
-    bottom: -2%;
-    max-width: 700px;
+    width: 115%;
+    bottom: 11%;
+    max-width: 534px;
   }
 }
 

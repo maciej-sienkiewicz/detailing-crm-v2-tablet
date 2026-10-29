@@ -88,24 +88,24 @@ export function Standby({ deviceName, wsConnected, notice }: StandbyProps) {
 
       <img
         className="standby-car"
-        src="/porsche.png"
+        src="/gt4rs.png"
         alt=""
         aria-hidden="true"
         draggable={false}
         onLoad={(e) => {
           const img = e.currentTarget;
-          console.info('[standby] porsche.png załadowane OK', img.naturalWidth, 'x', img.naturalHeight);
+          console.info('[standby] gt4rs.png załadowane OK', img.naturalWidth, 'x', img.naturalHeight);
         }}
         onError={async () => {
           try {
-            const res = await fetch('/porsche.png', { cache: 'no-store' });
+            const res = await fetch('/gt4rs.png', { cache: 'no-store' });
             const ct = res.headers.get('content-type') ?? '(brak)';
             console.error(
-              `[standby] porsche.png błąd obrazka | HTTP ${res.status} | Content-Type: ${ct}`,
+              `[standby] gt4rs.png błąd obrazka | HTTP ${res.status} | Content-Type: ${ct}`,
               ct.includes('text/html') ? '← serwer zwrócił HTML zamiast PNG (plik nie istnieje w build)' : '',
             );
           } catch (err) {
-            console.error('[standby] porsche.png błąd obrazka | fetch nie powiódł się:', err);
+            console.error('[standby] gt4rs.png błąd obrazka | fetch nie powiódł się:', err);
           }
         }}
       />
