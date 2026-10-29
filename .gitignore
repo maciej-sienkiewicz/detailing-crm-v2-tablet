@@ -1,5 +1,7 @@
 node_modules
 dist
+# cache zależności serwera deweloperskiego Vite
+.vite
 *.local
 .env
 .env.*
